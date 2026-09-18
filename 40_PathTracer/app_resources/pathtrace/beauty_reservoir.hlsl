@@ -94,7 +94,7 @@ struct SClosestHitRetval
             retval.barycentrics = tmp;
         }
         // Which method of barycentric interpolation is more precise? Pick your poison!
-#define POSITION_RECON_METHOD 0
+#define POSITION_RECON_METHOD 1
 #if POSITION_RECON_METHOD != 0
         // compute worldspace hit position
         const float32_t3 vertices[3] = spirv::hitObjectGetIntersectionTriangleVertexPositionsEXT(hitObject);
@@ -325,6 +325,8 @@ void raygen()
 
                 // TODO: possible SER point based on NEE status, and material flags
 
+                const bool isDI = pathState.currentVertexIndex == 1u;
+
                 // TODO: do after the emissive part
                 // TODO: get AoVs from material and emission
                 SAOVThroughputs nextThroughput;
@@ -346,10 +348,13 @@ void raygen()
                     spectral_t emission = neeEstimator.shadeEmission(emitterIdx, closestInfo.hitPos, otherTechniqueHeuristic, thp_curr);
                     color += emission;
                     
-                    if (pathState.currentVertexIndex <= pathState.rcVertexLength && pathState.currentVertexIndex > 1)
-                        pathState.prefixPathRadiance += emission;
-                    else if (pathState.currentVertexIndex > pathState.rcVertexLength)
-                        pathState.rcVertexRadiance += emission;
+                    if (pathState.currentVertexIndex != 2)  // TODO: double check this, we don't want emission on 1st and 2nd bounce?
+                    {
+                        if (pathState.currentVertexIndex <= pathState.rcVertexLength && pathState.currentVertexIndex > 1)
+                            pathState.prefixPathRadiance += emission;
+                        else if (pathState.currentVertexIndex > pathState.rcVertexLength)
+                            pathState.rcVertexRadiance += emission;
+                    }
                 }
 
                 const bool canConnect = pathState.isLastVertexRough && pathState.currentVertexIndex == pathState.rcVertexLength;
@@ -391,7 +396,7 @@ void raygen()
                 // should the offset be the same for NEE and Path Continuation?
                 const float32_t3 originMagnitude = hlsl::max(hlsl::abs(closestInfo.hitPos), hlsl::abs(spirv::hitObjectGetWorldRayOriginEXT(hitObject)));
                 // TODO: should probably also take `tMax` of found hit into account
-                const float      offsetMagnitude = hlsl::max(hlsl::max(hlsl::exp2(8.f), originMagnitude.x), hlsl::max(originMagnitude.y, originMagnitude.z)) * hlsl::exp2(-20.f);
+                const float offsetMagnitude = hlsl::max(hlsl::max(hlsl::exp2(8.f), originMagnitude.x), hlsl::max(originMagnitude.y, originMagnitude.z)) * hlsl::exp2(-20.f);
                 const float32_t3 newRayOrigin    = closestInfo.hitPos + closestInfo.geometricNormal * offsetMagnitude;
 
                 // perform NEE
@@ -401,6 +406,8 @@ void raygen()
                     const float32_t3 randNEE  = randgen(sequenceProtoDim + uint16_t(1), sampleIndex);
                     const float32_t3 randNEE2 = randgen(sequenceProtoDim + uint16_t(2), sampleIndex);
 
+                    const spectral_t thp_curr = pathState.throughput * hlsl::mix(hlsl::promote<spectral_t>(1.f), pathState.prefixThroughput, pathState.currentVertexIndex < pathState.rcVertexLength);
+
 #if NBL_NEE_CALLABLE
                     // Route forwardNEE through the callable shader stage so its heavy register/i-cache
                     // footprint stays out of raygen. The payload spills to the RT stack across the call.
@@ -408,7 +415,7 @@ void raygen()
                     cd.hitPos                  = closestInfo.hitPos;
                     cd.shadingNormal           = shadingNormal;
                     cd.V                       = V.getDirection();
-                    cd.throughput              = hlsl::promote<spectral_t>(1.f);    // mult throughput manually because this doesn't like conditionals for some reason
+                    cd.throughput              = thp_curr;
                     cd.randNEE                 = randNEE;
                     cd.randNEE2                = randNEE2;
                     cd.prevDescentNeeEmitterID = neeEstimator.prevDescentNeeEmitterID;
@@ -423,7 +430,7 @@ void raygen()
                     nee.contribution    = cd.contribution;
                     nee.valid           = cd.valid != 0u;
 #else
-                    const nbl::this_example::NextEventEstimator::SForwardSample nee = neeEstimator.forwardNEE(closestInfo.hitPos, shadingNormal, interaction, diffuse, hlsl::promote<spectral_t>(1.f), randNEE, randNEE2);
+                    const nbl::this_example::NextEventEstimator::SForwardSample nee = neeEstimator.forwardNEE(closestInfo.hitPos, shadingNormal, interaction, diffuse, thp_curr, randNEE, randNEE2);
 #endif
                     if (nee.valid)
                     {
@@ -436,14 +443,16 @@ void raygen()
                         // albedo: NEE direct must be tinted by the surface reflectance, same as the BSDF path.
                         if (shadowHitsEmitter)
                         {
-                            const spectral_t thp_curr = pathState.throughput * hlsl::mix(hlsl::promote<spectral_t>(1.f), pathState.prefixThroughput, pathState.currentVertexIndex < pathState.rcVertexLength);
                             const spectral_t shadowedEmission = nee.contribution * albedo;
-                            color += shadowedEmission * thp_curr;
+                            color += shadowedEmission;
 
-                            if (pathState.currentVertexIndex < pathState.rcVertexLength)
-                                pathState.prefixPathRadiance += shadowedEmission * thp_curr;
-                            else
-                                pathState.rcVertexRadiance += shadowedEmission * thp_curr;
+                            if (isDI)   // TODO once not using color var, move this condition up more levels
+                            {
+                                if (pathState.currentVertexIndex < pathState.rcVertexLength)
+                                    pathState.prefixPathRadiance += shadowedEmission;
+                                else
+                                    pathState.rcVertexRadiance += shadowedEmission;
+                            }
                         }
                     }
                 }
@@ -472,8 +481,6 @@ void raygen()
                     pathState.pdf = forwardWeight;
                     if (forwardWeight < 0.00000001f)
                         break;
-
-                    spectral_t weight = qAw.quotient();
 
                     // TODO ReSTIR: check roughness greater than threshold and not specular/delta bounce
                     pathState.isLastVertexRough = true;
@@ -520,10 +527,13 @@ void raygen()
                             aovs = aovs + _sample.aov * aovThroughput;
                             transparency += aovThroughput.transparency;
 
-                            if (pathState.currentVertexIndex < pathState.rcVertexLength)
-                                pathState.prefixPathRadiance += _sample.color * thp_curr;
-                            else
-                                pathState.rcVertexRadiance += _sample.color * thp_curr;
+                            if (isDI)
+                            {
+                                if (pathState.currentVertexIndex < pathState.rcVertexLength)
+                                    pathState.prefixPathRadiance += _sample.color * thp_curr;
+                                else
+                                    pathState.rcVertexRadiance += _sample.color * thp_curr;
+                            }
                             break;
                         }
                     }
