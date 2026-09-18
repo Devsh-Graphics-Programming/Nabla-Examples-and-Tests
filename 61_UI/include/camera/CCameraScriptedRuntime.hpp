@@ -16,7 +16,7 @@
 
 #include "CCameraGoal.hpp"
 #include "CCameraFollowRegressionUtilities.hpp"
-#include "nbl/ext/Cameras/CVirtualGimbalEvent.hpp"
+#include "nbl/ext/Cameras/SCameraControls.hpp"
 #include "nbl/ui/KeyCodes.h"
 
 using namespace nbl;
@@ -122,10 +122,11 @@ struct CCameraScriptedInputCheck
         FollowTargetLock
     };
 
+    /// @brief One control axis a check expects the frame to carry, and the value it expects on it.
     struct ExpectedVirtualEvent
     {
-        CVirtualGimbalEvent::VirtualEventType type = CVirtualGimbalEvent::None;
-        hlsl::float64_t magnitude = 0.0;
+        ECameraControlAxis axis = static_cast<ECameraControlAxis>(0u);
+        hlsl::float64_t value = 0.0;
     };
 
     uint64_t frame = 0;

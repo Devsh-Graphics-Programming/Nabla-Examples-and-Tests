@@ -38,7 +38,7 @@ void App::drawControlPanelStatusTab(const nbl::ui::SCameraControlPanelStyle& pan
 		const auto pos = gimbal.getPosition();
 		const auto euler = CCameraMathUtilities::getCameraOrientationEulerDegrees(gimbal.getOrientation());
 
-		if (nbl::ui::CCameraControlPanelUiUtilities::beginCard("CameraCard", nbl::ui::CCameraControlPanelUiUtilities::calcCameraControlPanelCardHeight(5, panelStyle), panelStyle.CardTopColor, panelStyle.CardBottomColor, panelStyle.CardBorderColor, panelStyle))
+		if (nbl::ui::CCameraControlPanelUiUtilities::beginCard("CameraCard", nbl::ui::CCameraControlPanelUiUtilities::calcCameraControlPanelCardHeight(3, panelStyle), panelStyle.CardTopColor, panelStyle.CardBottomColor, panelStyle.CardBorderColor, panelStyle))
 		{
 			if (ImGui::BeginTable("CameraTable", 2, panelStyle.SummaryTableFlags))
 			{
@@ -46,14 +46,10 @@ void App::drawControlPanelStatusTab(const nbl::ui::SCameraControlPanelStyle& pan
 				ImGui::TableSetupColumn("Value", ImGuiTableColumnFlags_WidthStretch);
 				const auto positionText = std::format("{:.2f} {:.2f} {:.2f}", pos.x, pos.y, pos.z);
 				const auto eulerText = std::format("{:.1f} {:.1f} {:.1f}", euler.x, euler.y, euler.z);
-				const auto moveScaleText = std::format("{:.4f}", activeCamera->getMoveSpeedScale());
-				const auto rotateScaleText = std::format("{:.4f}", activeCamera->getRotationSpeedScale());
-				const std::array<nbl::ui::SCameraControlPanelStatusLineSpec, 5u> cameraRows = {{
+				const std::array<nbl::ui::SCameraControlPanelStatusLineSpec, 3u> cameraRows = {{
 					{ .label = "Name", .value = activeCamera->getIdentifier(), .dotColor = panelStyle.AccentColor, .valueColor = panelStyle.MutedColor },
 					{ .label = "Position", .value = positionText, .dotColor = panelStyle.MutedColor, .valueColor = panelStyle.MutedColor },
-					{ .label = "Euler", .value = eulerText, .dotColor = panelStyle.MutedColor, .valueColor = panelStyle.MutedColor },
-					{ .label = "Move scale", .value = moveScaleText, .dotColor = panelStyle.MutedColor, .valueColor = panelStyle.MutedColor },
-					{ .label = "Rotate scale", .value = rotateScaleText, .dotColor = panelStyle.MutedColor, .valueColor = panelStyle.MutedColor }
+					{ .label = "Euler", .value = eulerText, .dotColor = panelStyle.MutedColor, .valueColor = panelStyle.MutedColor }
 				}};
 				for (const auto& row : cameraRows)
 					nbl::ui::CCameraControlPanelUiUtilities::drawStatusLine(row, panelStyle);

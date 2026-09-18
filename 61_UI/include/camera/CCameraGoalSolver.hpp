@@ -13,7 +13,7 @@
 
 #include "CCameraGoal.hpp"
 #include "nbl/ext/Cameras/CCameraTargetRelativeUtilities.hpp"
-#include "nbl/ext/Cameras/CCameraVirtualEventUtilities.hpp"
+#include "nbl/ext/Cameras/SCameraControls.hpp"
 #include "nbl/core/util/bitflag.h"
 #include <limits>
 
@@ -24,8 +24,8 @@ using namespace nbl::ext::cameras;
 ///
 /// The solver captures canonical state into `CCameraGoal`, compares a goal
 /// against one target camera, applies typed fragments directly when the camera
-/// exposes them, and builds virtual-event replay when a typed fragment must be
-/// approximated through `manipulate(...)`.
+/// exposes them, and builds one control frame for whatever a typed setter could
+/// not reach, which it applies through `manipulate(...)`.
 class CCameraGoalSolver
 {
 public:
@@ -62,8 +62,8 @@ public:
             Failed,
             AlreadySatisfied,
             AppliedAbsoluteOnly,
-            AppliedVirtualEvents,
-            AppliedAbsoluteAndVirtualEvents
+            AppliedControls,
+            AppliedAbsoluteAndControls
         };
 
         enum class EIssue : uint32_t
@@ -73,12 +73,13 @@ public:
             MissingSphericalTargetState = core::createBitmask({ 1 }),
             MissingPathState = core::createBitmask({ 2 }),
             MissingDynamicPerspectiveState = core::createBitmask({ 3 }),
-            VirtualEventReplayFailed = core::createBitmask({ 4 })
+            ControlFrameFailed = core::createBitmask({ 4 })
         };
 
         EStatus status = EStatus::Unsupported;
         bool exact = false;
-        uint32_t eventCount = 0u;
+        /// @brief `ECameraControlAxis` mask the control frame carried into `manipulate`.
+        uint32_t appliedAxes = 0u;
         core::bitflag<EIssue> issues = EIssue::NoIssue;
 
         inline bool succeeded() const
@@ -89,8 +90,8 @@ public:
         inline bool changed() const
         {
             return status == EStatus::AppliedAbsoluteOnly ||
-                status == EStatus::AppliedVirtualEvents ||
-                status == EStatus::AppliedAbsoluteAndVirtualEvents;
+                status == EStatus::AppliedControls ||
+                status == EStatus::AppliedAbsoluteAndControls;
         }
 
         inline bool approximate() const
@@ -104,7 +105,8 @@ public:
         }
     };
 
-    bool buildEvents(ICamera* camera, const CCameraGoal& target, std::vector<CVirtualGimbalEvent>& out) const;
+    /// @brief Fill one control frame with whatever the typed setters cannot reach, masked to what the rig accepts.
+    bool buildControls(ICamera* camera, const CCameraGoal& target, SCameraControls& out) const;
     bool capture(ICamera* camera, CCameraGoal& out) const;
     SCaptureResult captureDetailed(ICamera* camera) const;
     SCompatibilityResult analyzeCompatibility(const ICamera* camera, const CCameraGoal& target) const;
@@ -112,56 +114,52 @@ public:
     bool apply(ICamera* camera, const CCameraGoal& target) const;
 
 private:
-    struct SGoalSolverDefaults final
-    {
-        static constexpr double UnitScale = 1.0;
-        static inline const hlsl::float64_t3 UnitAxisDenominator = hlsl::float64_t3(UnitScale);
-        static inline const hlsl::float64_t3 ScalarToleranceVec = hlsl::float64_t3(SCameraToolingThresholds::ScalarTolerance);
-        static inline const hlsl::float64_t3 AngularToleranceDegVec = hlsl::float64_t3(SCameraToolingThresholds::DefaultAngularToleranceDeg);
-    };
-
-    void appendYawPitchRollEvents(
-        std::vector<CVirtualGimbalEvent>& events,
-        const hlsl::float64_t3& eulerRadians,
-        double denominator,
-        bool includeRoll = true) const;
-    void appendPathDeltaEvents(
-        std::vector<CVirtualGimbalEvent>& events,
-        const SCameraPathDelta& delta,
-        double moveDenominator,
-        double rotationDenominator) const;
-    double getMoveMagnitudeDenominator(const ICamera* camera) const;
-    double getRotationMagnitudeDenominator(const ICamera* camera) const;
+    /// @brief Zero one value inside its deadband, so a goal already met yields an empty frame.
+    static hlsl::float64_t deadbandScalar(hlsl::float64_t value, hlsl::float64_t tolerance);
+    /// @brief The same for an angle in radians, against a tolerance in degrees.
+    static hlsl::float64_t deadbandAngle(hlsl::float64_t radians, hlsl::float64_t toleranceDeg);
     bool computePoseMismatch(ICamera* camera, const CCameraGoal& target, double& outPositionDelta, double& outRotationDeltaDeg) const;
     bool tryApplyAbsoluteReferencePose(ICamera* camera, const CCameraGoal& target, bool& outChanged, bool& outExact) const;
-    bool buildTargetRelativeEvents(
-        ICamera* camera,
+    bool buildTargetRelativeControls(
         const ICamera::SphericalTargetState& sphericalState,
         const STargetOrbit& goal,
-        std::vector<CVirtualGimbalEvent>& out,
-        const SCameraTargetRelativeEventPolicy& policy) const;
-    bool buildPathEvents(
+        SCameraControls& out) const;
+    bool buildPathControls(
         ICamera* camera,
         const CCameraGoal& target,
         const ICamera::SphericalTargetState& sphericalState,
-        std::vector<CVirtualGimbalEvent>& out) const;
-    bool buildSphericalEvents(ICamera* camera, const CCameraGoal& target, std::vector<CVirtualGimbalEvent>& out) const;
-    bool buildFreeEvents(ICamera* camera, const CCameraGoal& target, std::vector<CVirtualGimbalEvent>& out) const;
+        SCameraControls& out) const;
+    bool buildSphericalControls(ICamera* camera, const CCameraGoal& target, SCameraControls& out) const;
+    bool buildFreeControls(ICamera* camera, const CCameraGoal& target, SCameraControls& out) const;
 };
 
 
-inline bool CCameraGoalSolver::buildEvents(ICamera* camera, const CCameraGoal& target, std::vector<CVirtualGimbalEvent>& out) const
+inline hlsl::float64_t CCameraGoalSolver::deadbandScalar(const hlsl::float64_t value, const hlsl::float64_t tolerance)
 {
-    out.clear();
+    if (!std::isfinite(value) || hlsl::abs(value) <= tolerance)
+        return 0.0;
+    return value;
+}
+
+inline hlsl::float64_t CCameraGoalSolver::deadbandAngle(const hlsl::float64_t radians, const hlsl::float64_t toleranceDeg)
+{
+    return deadbandScalar(radians, hlsl::radians(toleranceDeg));
+}
+
+inline bool CCameraGoalSolver::buildControls(ICamera* camera, const CCameraGoal& target, SCameraControls& out) const
+{
+    out = {};
     if (!camera)
         return false;
 
     const auto canonicalTarget = CCameraGoalUtilities::canonicalizeGoal(target);
+    const bool built = camera->hasCapability(ICamera::SphericalTarget) ?
+        buildSphericalControls(camera, canonicalTarget, out) :
+        buildFreeControls(camera, canonicalTarget, out);
 
-    if (camera->hasCapability(ICamera::SphericalTarget))
-        return buildSphericalEvents(camera, canonicalTarget, out);
-
-    return buildFreeEvents(camera, canonicalTarget, out);
+    // a rig refuses a whole frame carrying an axis it does not accept, so drop the residue it cannot take
+    out = out.masked(camera->getAcceptedControls());
+    return built && out.nonZeroAxes() != 0u;
 }
 
 inline bool CCameraGoalSolver::capture(ICamera* camera, CCameraGoal& out) const
@@ -398,12 +396,13 @@ inline CCameraGoalSolver::SApplyResult CCameraGoalSolver::applyDetailed(ICamera*
         }
     }
 
-    std::vector<CVirtualGimbalEvent> events;
-    buildEvents(camera, canonicalTarget, events);
-    result.eventCount = static_cast<uint32_t>(events.size());
+    SCameraControls controls = {};
+    buildControls(camera, canonicalTarget, controls);
+    result.appliedAxes = controls.nonZeroAxes();
     result.exact = exact;
 
-    if (events.empty())
+    // an empty frame means every axis landed inside its deadband, which is the goal already being met
+    if (result.appliedAxes == 0u)
     {
         if (absoluteChanged)
             result.status = SApplyResult::EStatus::AppliedAbsoluteOnly;
@@ -412,11 +411,11 @@ inline CCameraGoalSolver::SApplyResult CCameraGoalSolver::applyDetailed(ICamera*
         return result;
     }
 
-    if (camera->manipulate({ events.data(), events.size() }))
+    if (camera->manipulate(controls))
     {
         result.status = absoluteChanged ?
-            SApplyResult::EStatus::AppliedAbsoluteAndVirtualEvents :
-            SApplyResult::EStatus::AppliedVirtualEvents;
+            SApplyResult::EStatus::AppliedAbsoluteAndControls :
+            SApplyResult::EStatus::AppliedControls;
         return result;
     }
 
@@ -427,7 +426,7 @@ inline CCameraGoalSolver::SApplyResult CCameraGoalSolver::applyDetailed(ICamera*
         return result;
     }
 
-    result.issues |= SApplyResult::EIssue::VirtualEventReplayFailed;
+    result.issues |= SApplyResult::EIssue::ControlFrameFailed;
     result.status = SApplyResult::EStatus::Failed;
     result.exact = false;
     return result;
@@ -436,56 +435,6 @@ inline CCameraGoalSolver::SApplyResult CCameraGoalSolver::applyDetailed(ICamera*
 inline bool CCameraGoalSolver::apply(ICamera* camera, const CCameraGoal& target) const
 {
     return applyDetailed(camera, target).succeeded();
-}
-
-inline void CCameraGoalSolver::appendYawPitchRollEvents(
-    std::vector<CVirtualGimbalEvent>& events,
-    const hlsl::float64_t3& eulerRadians,
-    double denominator,
-    bool includeRoll) const
-{
-    static constexpr std::array<SCameraVirtualEventAxisBinding, 3u> RotationBindings = {{
-        { CVirtualGimbalEvent::TiltUp, CVirtualGimbalEvent::TiltDown },
-        { CVirtualGimbalEvent::PanRight, CVirtualGimbalEvent::PanLeft },
-        { CVirtualGimbalEvent::RollRight, CVirtualGimbalEvent::RollLeft }
-    }};
-
-    auto tolerances = SGoalSolverDefaults::AngularToleranceDegVec;
-    if (!includeRoll)
-        tolerances.z = std::numeric_limits<hlsl::float64_t>::infinity();
-
-    CCameraVirtualEventUtilities::appendAngularAxisEvents(
-        events,
-        eulerRadians,
-        hlsl::float64_t3(denominator),
-        tolerances,
-        RotationBindings);
-}
-
-inline void CCameraGoalSolver::appendPathDeltaEvents(
-    std::vector<CVirtualGimbalEvent>& events,
-    const SCameraPathDelta& delta,
-    double moveDenominator,
-    double rotationDenominator) const
-{
-    CCameraPathUtilities::appendPathDeltaEvents(
-        events,
-        delta,
-        moveDenominator,
-        rotationDenominator,
-        SCameraPathDefaults::ExactComparisonThresholds);
-}
-
-inline double CCameraGoalSolver::getMoveMagnitudeDenominator(const ICamera* camera) const
-{
-    const double moveScale = camera->getMoveSpeedScale();
-    return camera->getUnscaledVirtualTranslationMagnitude() * (moveScale == 0.0 ? SGoalSolverDefaults::UnitScale : moveScale);
-}
-
-inline double CCameraGoalSolver::getRotationMagnitudeDenominator(const ICamera* camera) const
-{
-    const double rotationScale = camera->getRotationSpeedScale();
-    return rotationScale == 0.0 ? SGoalSolverDefaults::UnitScale : rotationScale;
 }
 
 inline bool CCameraGoalSolver::computePoseMismatch(ICamera* camera, const CCameraGoal& target, double& outPositionDelta, double& outRotationDeltaDeg) const
@@ -547,30 +496,27 @@ inline bool CCameraGoalSolver::tryApplyAbsoluteReferencePose(ICamera* camera, co
     return true;
 }
 
-inline bool CCameraGoalSolver::buildTargetRelativeEvents(
-    ICamera* camera,
+inline bool CCameraGoalSolver::buildTargetRelativeControls(
     const ICamera::SphericalTargetState& sphericalState,
     const STargetOrbit& goal,
-    std::vector<CVirtualGimbalEvent>& out,
-    const SCameraTargetRelativeEventPolicy& policy) const
+    SCameraControls& out) const
 {
     const auto delta = CCameraTargetRelativeUtilities::buildTargetRelativeDelta(sphericalState, goal);
-    CCameraTargetRelativeUtilities::appendTargetRelativeDeltaEvents(
-        out,
-        delta,
-        policy.translateOrbit ? getMoveMagnitudeDenominator(camera) : getRotationMagnitudeDenominator(camera),
-        SCameraToolingThresholds::DefaultAngularToleranceDeg,
-        camera->getUnscaledVirtualTranslationMagnitude(),
-        SCameraToolingThresholds::ScalarTolerance,
-        policy);
-    return !out.empty();
+
+    // `orbitVector()` is already laid out like `rotate`: pitch in x, yaw in y
+    const auto orbit = delta.orbitVector();
+    out.rotate.x = deadbandAngle(orbit.x, SCameraToolingThresholds::DefaultAngularToleranceDeg);
+    out.rotate.y = deadbandAngle(orbit.y, SCameraToolingThresholds::DefaultAngularToleranceDeg);
+    out.distance = deadbandScalar(delta.distance, SCameraToolingThresholds::ScalarTolerance);
+
+    return out.nonZeroAxes() != 0u;
 }
 
-inline bool CCameraGoalSolver::buildPathEvents(
+inline bool CCameraGoalSolver::buildPathControls(
     ICamera* camera,
     const CCameraGoal& target,
     const ICamera::SphericalTargetState& sphericalState,
-    std::vector<CVirtualGimbalEvent>& out) const
+    SCameraControls& out) const
 {
     if (!camera)
         return false;
@@ -593,97 +539,71 @@ inline bool CCameraGoalSolver::buildPathEvents(
         return false;
     }
 
-    const auto moveDenom = getMoveMagnitudeDenominator(camera);
-    const auto rotationDenom = getRotationMagnitudeDenominator(camera);
-    appendPathDeltaEvents(out, transition.delta, moveDenom, rotationDenom);
-    return !out.empty();
+    // the path model reads `s`, `u` and `v` as its own coordinates and `roll` as radians, so the delta goes
+    // straight into the path axes
+    const auto& delta = transition.delta;
+    const auto scalarTolerance = SCameraPathDefaults::ExactComparisonThresholds.scalarTolerance;
+    out.path.s = deadbandScalar(delta.s, scalarTolerance);
+    out.path.u = deadbandScalar(delta.u, scalarTolerance);
+    out.path.v = deadbandScalar(delta.v, scalarTolerance);
+    out.path.roll = deadbandAngle(delta.roll, SCameraPathDefaults::ExactComparisonThresholds.rollToleranceDeg);
+
+    return out.nonZeroAxes() != 0u;
 }
 
-inline bool CCameraGoalSolver::buildSphericalEvents(ICamera* camera, const CCameraGoal& target, std::vector<CVirtualGimbalEvent>& out) const
+inline bool CCameraGoalSolver::buildSphericalControls(ICamera* camera, const CCameraGoal& target, SCameraControls& out) const
 {
     ICamera::SphericalTargetState sphericalState;
     if (!camera || !camera->tryGetSphericalTargetState(sphericalState))
         return false;
 
     if (camera->getKind() == ICamera::CameraKind::Path)
-        return buildPathEvents(camera, target, sphericalState, out);
+        return buildPathControls(camera, target, sphericalState, out);
 
     STargetOrbit goal;
     if (!CCameraGoalUtilities::tryResolveCanonicalTargetRelativeState(target, sphericalState, goal))
         return false;
 
-    switch (camera->getKind())
-    {
-        case ICamera::CameraKind::Orbit:
-        case ICamera::CameraKind::DollyZoom:
-            return buildTargetRelativeEvents(camera, sphericalState, goal, out, SCameraTargetRelativeRigDefaults::OrbitTranslatePolicy);
-
-        case ICamera::CameraKind::Turntable:
-        case ICamera::CameraKind::Arcball:
-            return buildTargetRelativeEvents(camera, sphericalState, goal, out, SCameraTargetRelativeRigDefaults::RotateDistancePolicy);
-
-        case ICamera::CameraKind::TopDown:
-            return buildTargetRelativeEvents(camera, sphericalState, goal, out, SCameraTargetRelativeRigDefaults::TopDownPolicy);
-
-        case ICamera::CameraKind::Isometric:
-            return buildTargetRelativeEvents(camera, sphericalState, goal, out, SCameraTargetRelativeRigDefaults::IsometricPolicy);
-
-        case ICamera::CameraKind::Dolly:
-            return buildTargetRelativeEvents(camera, sphericalState, goal, out, SCameraTargetRelativeRigDefaults::DollyPolicy);
-
-        case ICamera::CameraKind::Chase:
-            return buildTargetRelativeEvents(camera, sphericalState, goal, out, SCameraTargetRelativeRigDefaults::ChasePolicy);
-
-        default:
-            return buildTargetRelativeEvents(camera, sphericalState, goal, out, SCameraTargetRelativeRigDefaults::OrbitTranslatePolicy);
-    }
+    // every target-relative rig wants the same orbit delta; which parts of it survive is the rig's own business
+    return buildTargetRelativeControls(sphericalState, goal, out);
 }
 
-inline bool CCameraGoalSolver::buildFreeEvents(ICamera* camera, const CCameraGoal& target, std::vector<CVirtualGimbalEvent>& out) const
+inline bool CCameraGoalSolver::buildFreeControls(ICamera* camera, const CCameraGoal& target, SCameraControls& out) const
 {
     const CCameraGimbal& gimbal = camera->getGimbal();
-    const hlsl::float64_t3 currentPos = gimbal.getPosition();
-    const hlsl::float64_t3 deltaWorld = target.position - currentPos;
-    CCameraVirtualEventUtilities::appendWorldTranslationAsLocalEvents(
-        out,
-        gimbal.getOrientation(),
-        deltaWorld,
-        SGoalSolverDefaults::UnitAxisDenominator,
-        SGoalSolverDefaults::ScalarToleranceVec);
 
+    // both rigs apply `translate` in their own frame, so the world-space position error is rotated into it
+    const auto deltaWorld = target.position - gimbal.getPosition();
+    const auto deltaLocal = CCameraMathUtilities::projectWorldVectorToLocalQuaternionFrame<hlsl::float64_t>(gimbal.getOrientation(), deltaWorld);
+    out.translate.x = deadbandScalar(deltaLocal.x, SCameraToolingThresholds::ScalarTolerance);
+    out.translate.y = deadbandScalar(deltaLocal.y, SCameraToolingThresholds::ScalarTolerance);
+    out.translate.z = deadbandScalar(deltaLocal.z, SCameraToolingThresholds::ScalarTolerance);
+
+    constexpr auto AngularToleranceDeg = SCameraToolingThresholds::DefaultAngularToleranceDeg;
     switch (camera->getKind())
     {
         case ICamera::CameraKind::FPS:
         {
-            const hlsl::float64_t2 currentPitchYaw = CCameraMathUtilities::getPitchYawFromOrientation(gimbal.getOrientation());
-            const hlsl::float64_t2 targetPitchYaw = CCameraMathUtilities::getPitchYawFromOrientation(target.orientation);
-
-            const double rotScale = camera->getRotationSpeedScale();
-            const double invScale = rotScale == 0.0 ? SGoalSolverDefaults::UnitScale : (SGoalSolverDefaults::UnitScale / rotScale);
-
-            appendYawPitchRollEvents(
-                out,
-                hlsl::float64_t3(
-                    CCameraMathUtilities::wrapAngleRad<hlsl::float64_t>(targetPitchYaw.x - currentPitchYaw.x) * invScale,
-                    CCameraMathUtilities::wrapAngleRad<hlsl::float64_t>(targetPitchYaw.y - currentPitchYaw.y) * invScale,
-                    0.0),
-                SGoalSolverDefaults::UnitScale,
-                false);
+            // an FPS rig holds roll at zero, so only the pitch and yaw difference is asked for
+            const auto current = CCameraMathUtilities::getPitchYawFromOrientation(gimbal.getOrientation());
+            const auto wanted = CCameraMathUtilities::getPitchYawFromOrientation(target.orientation);
+            out.rotate.x = deadbandAngle(CCameraMathUtilities::wrapAngleRad<hlsl::float64_t>(wanted.x - current.x), AngularToleranceDeg);
+            out.rotate.y = deadbandAngle(CCameraMathUtilities::wrapAngleRad<hlsl::float64_t>(wanted.y - current.y), AngularToleranceDeg);
         } break;
 
         case ICamera::CameraKind::Free:
         {
-            appendYawPitchRollEvents(
-                out,
-                CCameraMathUtilities::getOrientationDeltaEulerRadiansYXZ<hlsl::float64_t>(gimbal.getOrientation(), target.orientation),
-                SGoalSolverDefaults::UnitScale);
+            const auto euler = CCameraMathUtilities::getOrientationDeltaEulerRadiansYXZ<hlsl::float64_t>(gimbal.getOrientation(), target.orientation);
+            out.rotate.x = deadbandAngle(euler.x, AngularToleranceDeg);
+            out.rotate.y = deadbandAngle(euler.y, AngularToleranceDeg);
+            out.rotate.z = deadbandAngle(euler.z, AngularToleranceDeg);
         } break;
 
         default:
             break;
     }
 
-    return !out.empty();
+    return out.nonZeroAxes() != 0u;
 }
 
 

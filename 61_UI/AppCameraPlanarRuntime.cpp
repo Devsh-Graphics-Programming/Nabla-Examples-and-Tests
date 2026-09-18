@@ -3,26 +3,6 @@
 #include <span>
 #include <string>
 
-template<typename BindingMap, typename ApplyBinding>
-bool tryApplyProjectionBindingSelection(
-    const std::optional<uint32_t>& bindingIx,
-    std::span<const BindingMap> bindings,
-    const char* label,
-    ApplyBinding&& applyBinding,
-    std::string& error)
-{
-    if (!bindingIx.has_value())
-        return true;
-    if (bindingIx.value() >= bindings.size())
-    {
-        error = std::string(label) + " binding index out of range.";
-        return false;
-    }
-
-    applyBinding(bindings[bindingIx.value()]);
-    return true;
-}
-
 namespace nbl::system
 {
 
@@ -85,7 +65,6 @@ bool tryBuildPlanarProjectionCollectionFromConfig(
     const SCameraPlanarConfigCollections& planarConfig,
     const std::span<const core::smart_refctd_ptr<ext::cameras::ICamera>> cameras,
     const std::span<const ext::cameras::IPlanarProjection::CProjection> projections,
-    const SCameraInputBindingCollections& bindings,
     std::vector<core::smart_refctd_ptr<planar_projection_t>>& outPlanars,
     std::string& error)
 {
@@ -123,27 +102,7 @@ bool tryBuildPlanarProjectionCollectionFromConfig(
                 return false;
             }
 
-            auto& projection = planar->getPlanarProjections().emplace_back(projections[projectionIx]);
-            auto& projectionBinding = projection.getInputBinding();
-            if (!tryApplyProjectionBindingSelection(
-                    viewport.bindings.keyboard,
-                    std::span<const decltype(bindings.keyboard)::value_type>(bindings.keyboard.data(), bindings.keyboard.size()),
-                    "Keyboard",
-                    [&](const auto& map) { projectionBinding.updateKeyboardMapping([&](auto& dst) { dst = map; }); },
-                    error))
-            {
-                return false;
-            }
-
-            if (!tryApplyProjectionBindingSelection(
-                    viewport.bindings.mouse,
-                    std::span<const decltype(bindings.mouse)::value_type>(bindings.mouse.data(), bindings.mouse.size()),
-                    "Mouse",
-                    [&](const auto& map) { projectionBinding.updateMouseMapping([&](auto& dst) { dst = map; }); },
-                    error))
-            {
-                return false;
-            }
+            planar->getPlanarProjections().emplace_back(projections[projectionIx]);
         }
     }
 
@@ -165,7 +124,6 @@ bool tryBuildCameraPlanarRuntime(
         collections.planarConfig,
         std::span<const core::smart_refctd_ptr<ext::cameras::ICamera>>(collections.cameras.data(), collections.cameras.size()),
         std::span<const ext::cameras::IPlanarProjection::CProjection>(collections.projections.data(), collections.projections.size()),
-        collections.bindings,
         outPlanars,
         error);
 }

@@ -8,7 +8,6 @@
 #include "nbl/ext/Cameras/CFileUtilities.hpp"
 #include "nbl/ext/Cameras/CInputCodeNames.hpp"
 #include "nbl/ext/Cameras/CCameraMathUtilities.hpp"
-#include "nbl/ext/Cameras/CCameraVirtualEventUtilities.hpp"
 #include "nlohmann/json.hpp"
 
 using json_t = nlohmann::json;
@@ -79,17 +78,10 @@ std::optional<nbl::ui::E_MOUSE_BUTTON> parseScriptedMouseButton(std::string_view
 {
     auto tryParseCode = [](std::string_view code) -> std::optional<nbl::ui::E_MOUSE_BUTTON>
     {
-        switch (nbl::ext::cameras::stringToMouseCode(code))
-        {
-            case nbl::ext::cameras::EMC_LEFT_BUTTON:
-                return nbl::ui::EMB_LEFT_BUTTON;
-            case nbl::ext::cameras::EMC_RIGHT_BUTTON:
-                return nbl::ui::EMB_RIGHT_BUTTON;
-            case nbl::ext::cameras::EMC_MIDDLE_BUTTON:
-                return nbl::ui::EMB_MIDDLE_BUTTON;
-            default:
-                return std::nullopt;
-        }
+        const auto parsed = nbl::ext::cameras::stringToMouseButton(code);
+        if (parsed == nbl::ui::EMB_COUNT)
+            return std::nullopt;
+        return parsed;
     };
 
     auto parsed = tryParseCode(button);
@@ -141,30 +133,15 @@ void parseScriptedControlOverridesJson(const json_t& controls, nbl::this_example
     if (!controls.is_object())
         return;
 
-    if (controls.contains("keyboard_scale"))
+    if (controls.contains("translate_scale"))
     {
-        out.keyboardScale = controls["keyboard_scale"].get<float>();
-        out.hasKeyboardScale = true;
+        out.translateScale = controls["translate_scale"].get<float>();
+        out.hasTranslateScale = true;
     }
-    if (controls.contains("mouse_move_scale"))
+    if (controls.contains("rotate_scale"))
     {
-        out.mouseMoveScale = controls["mouse_move_scale"].get<float>();
-        out.hasMouseMoveScale = true;
-    }
-    if (controls.contains("mouse_scroll_scale"))
-    {
-        out.mouseScrollScale = controls["mouse_scroll_scale"].get<float>();
-        out.hasMouseScrollScale = true;
-    }
-    if (controls.contains("translation_scale"))
-    {
-        out.translationScale = controls["translation_scale"].get<float>();
-        out.hasTranslationScale = true;
-    }
-    if (controls.contains("rotation_scale"))
-    {
-        out.rotationScale = controls["rotation_scale"].get<float>();
-        out.hasRotationScale = true;
+        out.rotateScale = controls["rotate_scale"].get<float>();
+        out.hasRotateScale = true;
     }
 }
 
@@ -444,23 +421,23 @@ bool parseScriptedImguizmoVirtualCheckJson(const json_t& check, CCameraScriptedI
 
     for (const auto& expectedEvent : check["events"])
     {
-        if (!expectedEvent.contains("type") || !expectedEvent.contains("magnitude"))
+        if (!expectedEvent.contains("axis") || !expectedEvent.contains("value"))
         {
-            nbl::this_example::CCameraScriptedRuntimePersistenceUtilities::appendScriptedInputParseWarning(out, "Imguizmo virtual check event missing \"type\" or \"magnitude\".");
+            nbl::this_example::CCameraScriptedRuntimePersistenceUtilities::appendScriptedInputParseWarning(out, "Imguizmo virtual check event missing \"axis\" or \"value\".");
             continue;
         }
 
-        const auto typeText = expectedEvent["type"].get<std::string>();
-        const auto type = nbl::ext::cameras::CVirtualGimbalEvent::stringToVirtualEvent(typeText);
-        if (type == nbl::ext::cameras::CVirtualGimbalEvent::None)
+        const auto axisText = expectedEvent["axis"].get<std::string>();
+        const auto axis = nbl::ext::cameras::stringToCameraControlAxis(axisText);
+        if (axis == static_cast<nbl::ext::cameras::ECameraControlAxis>(0u))
         {
-            nbl::this_example::CCameraScriptedRuntimePersistenceUtilities::appendScriptedInputParseWarning(out, "Imguizmo virtual check event has invalid type \"" + typeText + "\".");
+            nbl::this_example::CCameraScriptedRuntimePersistenceUtilities::appendScriptedInputParseWarning(out, "Imguizmo virtual check event has invalid axis \"" + axisText + "\".");
             continue;
         }
 
         CCameraScriptedInputCheck::ExpectedVirtualEvent expected;
-        expected.type = type;
-        expected.magnitude = expectedEvent["magnitude"].get<double>();
+        expected.axis = axis;
+        expected.value = expectedEvent["value"].get<double>();
         outCheck.expectedVirtualEvents.emplace_back(expected);
     }
 

@@ -60,9 +60,7 @@ void App::drawControlPanelProjectionTab(const nbl::ui::SCameraControlPanelStyle&
 	}
 
 	const auto selectedProjectionType = runtime.requirePlanar().getPlanarProjections()[binding.boundProjectionIx.value()].getParameters().m_type;
-	const bool updateBoundVirtualMaps = nbl::ui::drawProjectionPresetSelector(getPlanarProjectionSpan(), runtime, selectedProjectionType);
-	if (updateBoundVirtualMaps)
-		syncWindowInputBinding(binding);
+	nbl::ui::drawProjectionPresetSelector(getPlanarProjectionSpan(), runtime, selectedProjectionType);
 	nbl::ui::CCameraControlPanelUiUtilities::drawHoverHint("Switch preset projection for this planar");
 
 	auto& boundProjection = runtime.requirePlanar().getPlanarProjections()[binding.boundProjectionIx.value()];
@@ -82,12 +80,12 @@ void App::drawControlPanelProjectionTab(const nbl::ui::SCameraControlPanelStyle&
 	nbl::ui::drawBoundCameraSection(
 		runtime,
 		binding.activePlanarIx,
+		m_cameraController.binding,
 		[this](const char* topText, const char* tableName, int rows, int columns, const float* pointer, bool withSeparator)
 		{
 			addMatrixTable(topText, tableName, rows, columns, pointer, withSeparator);
 		},
-		[this](SWindowControlBinding& windowBinding) { syncWindowInputBinding(windowBinding); },
-		[this](SWindowControlBinding& windowBinding) { syncWindowInputBindingToProjection(windowBinding); });
+		[this, &runtime]() { refreshCameraInputBinding(runtime.viewport.camera); });
 
 	ImGui::PopItemWidth();
 	nbl::ui::CCameraControlPanelUiUtilities::endControlPanelTabChild();

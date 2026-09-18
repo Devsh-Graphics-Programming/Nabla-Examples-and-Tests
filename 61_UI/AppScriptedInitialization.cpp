@@ -63,16 +63,10 @@ void App::applyParsedScriptedInput(
 	m_scriptedInput.exclusive = parsed.exclusive;
 	m_scriptedInput.capturePrefix = parsed.capturePrefix.empty() ? std::string(SCameraAppScriptedVisualDefaults::DefaultCapturePrefix) : parsed.capturePrefix;
 
-	if (parsed.cameraControls.hasKeyboardScale)
-		m_cameraControls.keyboardScale = parsed.cameraControls.keyboardScale;
-	if (parsed.cameraControls.hasMouseMoveScale)
-		m_cameraControls.mouseMoveScale = parsed.cameraControls.mouseMoveScale;
-	if (parsed.cameraControls.hasMouseScrollScale)
-		m_cameraControls.mouseScrollScale = parsed.cameraControls.mouseScrollScale;
-	if (parsed.cameraControls.hasTranslationScale)
-		m_cameraControls.translationScale = parsed.cameraControls.translationScale;
-	if (parsed.cameraControls.hasRotationScale)
-		m_cameraControls.rotationScale = parsed.cameraControls.rotationScale;
+	if (parsed.cameraControls.hasTranslateScale)
+		m_cameraControls.translateScale = parsed.cameraControls.translateScale;
+	if (parsed.cameraControls.hasRotateScale)
+		m_cameraControls.rotateScale = parsed.cameraControls.rotateScale;
 
 	for (const auto& warning : parsed.warnings)
 		m_logger->log("%s", ILogger::ELL_WARNING, warning.c_str());

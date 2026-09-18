@@ -1,3 +1,9 @@
+	// TODO: this file no longer probes the input path. The keyboard, mouse-move and mouse-scroll probes, the
+	// orbit movement gate check, the binding-gain check, the event-scaling check and the world-to-local remap
+	// check were removed with the binder they exercised. Example 09 covers `CCameraMouseKeyboardController` and
+	// `CCameraMouseKeyboardPresets` in `CameraSelfTests` group 7. What stays here is camera, goal, preset,
+	// keyframe, follow and continuity coverage, all driven by control frames built in place.
+
 	using camera_json_t = nlohmann::json;
 	using CameraPreset = CCameraPreset;
 	constexpr double CameraTinyScalarEpsilon = SCameraSmokeComparisonThresholds::TinyScalarEpsilon;
@@ -8,15 +14,6 @@
 		static constexpr double PositionTolerance = SCameraSmokeComparisonThresholds::StrictPositionTolerance;
 		static constexpr double AngularToleranceDeg = SCameraSmokeComparisonThresholds::StrictAngularToleranceDeg;
 		static constexpr double ScalarTolerance = SCameraSmokeComparisonThresholds::StrictScalarTolerance;
-	};
-
-	struct SCameraSmokeInputDefaults final
-	{
-		static constexpr auto EventStep = std::chrono::microseconds(16667);
-		static constexpr int32_t RelativeMouseMove = 12;
-		static constexpr int32_t RelativeMouseMoveY = -8;
-		static constexpr int32_t VerticalScroll = 4;
-		static constexpr int32_t HorizontalScroll = 2;
 	};
 
 	struct SCameraSmokeScriptedCheckDefaults final
@@ -33,7 +30,8 @@
 		static constexpr float MinPositionDelta = 0.005f;
 		static constexpr float AngularToleranceDeg = 45.0f;
 		static constexpr float MinAngularDeltaDeg = 0.05f;
-		static constexpr double StepEventMagnitude = 12.0;
+		// yaws the orbit camera far enough to clear the minimum deltas and stay inside both step tolerances
+		static constexpr double StepYawRadians = 0.25;
 	};
 
 	struct SCameraSmokeFollowScenario final
@@ -52,8 +50,6 @@
 
 	struct SCameraSmokeManipulationDefaults final
 	{
-		static inline const float64_t3 WorldTranslationDelta = float64_t3(1.25, 0.5, 2.0);
-		static inline const float64_t3 FreeOrientationYawDeg = float64_t3(0.0, 90.0, 0.0);
 		static inline const float64_t3 FreePitchClampSourceDeg = float64_t3(60.0, 0.0, 0.0);
 		static constexpr float PitchMinDeg = -15.0f;
 		static constexpr float PitchMaxDeg = 15.0f;
@@ -81,13 +77,12 @@
 	{
 		static constexpr double PositionWriteback = SCameraSmokeComparisonThresholds::StrictScalarTolerance;
 		static constexpr double DynamicPerspectiveDelta = SCameraSmokeComparisonThresholds::StrictScalarTolerance;
-		static constexpr double VirtualEventScale = CameraTinyScalarEpsilon;
 	};
 
 	struct SCameraSmokePresetMutationDefaults final
 	{
 		static inline const float64_t3 TargetOffset = float64_t3(0.5, -0.25, 0.75);
-		static constexpr double DirectEventMagnitude = 1.0;
+		static constexpr double DirectControlValue = 1.0;
 	};
 
 	struct SCameraSmokeSequenceDefaults final
@@ -133,8 +128,8 @@
 	struct SCameraSmokeRuntimeParserDefaults final
 	{
 		static inline constexpr std::string_view CapturePrefix = "parser_smoke";
-		static constexpr double KeyboardScale = 2.0;
-		static constexpr double RotationScale = 0.5;
+		static constexpr double TranslateScale = 2.0;
+		static constexpr double RotateScale = 0.5;
 		static constexpr uint64_t EventFrame = 2u;
 		static constexpr uint64_t StepFrame = 3u;
 		static constexpr int32_t ActivePlanarValue = 3;
@@ -181,134 +176,61 @@
 		return false;
 	}
 
-	inline std::vector<CVirtualGimbalEvent> collectKeyboardVirtualEvents(
-		CGimbalInputBinder& inputBinder,
-		const ui::E_KEY_CODE keyCode)
+	/// @brief One control frame carrying `DirectControlValue` on up to two axes the camera accepts.
+	///
+	/// Prefers a translation and a rotation axis, falls back to a second translation axis, and finally to the
+	/// first accepted axis of any kind, so every camera kind gets a frame that moves it.
+	inline SCameraControls buildDirectManipulationControls(const uint32_t acceptedAxes)
 	{
-		static std::chrono::microseconds smokeTimestamp = std::chrono::microseconds::zero();
-		smokeTimestamp += SCameraSmokeInputDefaults::EventStep;
-		const auto pressTs = smokeTimestamp;
+		SCameraControls controls = {};
+		uint32_t filledAxes = 0u;
 
-		SKeyboardEvent pressEvent(pressTs);
-		pressEvent.keyCode = keyCode;
-		pressEvent.action = SKeyboardEvent::ECA_PRESSED;
-		pressEvent.window = nullptr;
-
-		inputBinder.collectVirtualEvents(pressTs, { .keyboardEvents = { &pressEvent, 1u } });
-
-		smokeTimestamp += SCameraSmokeInputDefaults::EventStep;
-		const auto sampleTs = smokeTimestamp;
-		return inputBinder.collectVirtualEvents(sampleTs).events;
-	}
-
-	inline std::vector<CVirtualGimbalEvent> collectMouseVirtualEvents(
-		CGimbalInputBinder& inputBinder,
-		std::span<const SMouseEvent> mouseEvents)
-	{
-		static std::chrono::microseconds smokeTimestamp = std::chrono::microseconds::zero();
-		smokeTimestamp += SCameraSmokeInputDefaults::EventStep;
-		return inputBinder.collectVirtualEvents(smokeTimestamp, { .mouseEvents = mouseEvents }).events;
-	}
-
-	inline std::vector<SMouseEvent> filterOrbitMouseEvents(
-		ICamera* const camera,
-		std::span<const SMouseEvent> input,
-		const bool orbitLookDown)
-	{
-		if (!(camera && camera->hasCapability(ICamera::SphericalTarget)))
-			return std::vector<SMouseEvent>(input.begin(), input.end());
-
-		std::vector<SMouseEvent> filtered;
-		filtered.reserve(input.size());
-		for (const auto& event : input)
+		const auto tryFillFirstAcceptedAxis = [&](const std::span<const ECameraControlAxis> candidates) -> bool
 		{
-			if (event.type == ui::SMouseEvent::EET_MOVEMENT && !orbitLookDown)
-				continue;
-			filtered.emplace_back(event);
-		}
-		return filtered;
-	}
-
-	inline SMouseEvent buildMovementSmokeMouseEvent()
-	{
-		SMouseEvent event(SCameraSmokeInputDefaults::EventStep);
-		event.window = nullptr;
-		event.type = ui::SMouseEvent::EET_MOVEMENT;
-		event.movementEvent.relativeMovementX = SCameraSmokeInputDefaults::RelativeMouseMove;
-		event.movementEvent.relativeMovementY = SCameraSmokeInputDefaults::RelativeMouseMoveY;
-		return event;
-	}
-
-	inline SMouseEvent buildScrollSmokeMouseEvent()
-	{
-		SMouseEvent event(SCameraSmokeInputDefaults::EventStep);
-		event.window = nullptr;
-		event.type = ui::SMouseEvent::EET_SCROLL;
-		event.scrollEvent.verticalScroll = SCameraSmokeInputDefaults::VerticalScroll;
-		event.scrollEvent.horizontalScroll = SCameraSmokeInputDefaults::HorizontalScroll;
-		return event;
-	}
-
-	inline void buildDirectManipulationEvents(
-		const uint32_t allowedEvents,
-		std::vector<CVirtualGimbalEvent>& outEvents)
-	{
-		outEvents.clear();
-		outEvents.reserve(3u);
-
-		const auto appendEvent = [&](const CVirtualGimbalEvent::VirtualEventType type)
-		{
-			outEvents.emplace_back(CVirtualGimbalEvent{
-				.type = type,
-				.magnitude = SCameraSmokePresetMutationDefaults::DirectEventMagnitude
-			});
-		};
-
-		const auto tryAppendFirstAllowedEvent = [&](const std::span<const CVirtualGimbalEvent::VirtualEventType> candidates) -> bool
-		{
-			for (const auto event : candidates)
+			for (const auto axis : candidates)
 			{
-				if ((allowedEvents & event) != event)
+				if ((acceptedAxes & axis) != axis)
 					continue;
-				if (std::find_if(outEvents.begin(), outEvents.end(), [&](const CVirtualGimbalEvent& existing) { return existing.type == event; }) != outEvents.end())
+				if ((filledAxes & axis) == axis)
 					continue;
 
-				appendEvent(event);
+				controls.axis(axis) = SCameraSmokePresetMutationDefaults::DirectControlValue;
+				filledAxes |= axis;
 				return true;
 			}
 			return false;
 		};
 
-		static constexpr std::array PreferredTranslationEvents = {
-			CVirtualGimbalEvent::MoveForward,
-			CVirtualGimbalEvent::MoveRight,
-			CVirtualGimbalEvent::MoveUp,
-			CVirtualGimbalEvent::MoveLeft,
-			CVirtualGimbalEvent::MoveDown,
-			CVirtualGimbalEvent::MoveBackward
+		static constexpr std::array PreferredTranslationAxes = {
+			ECameraControlAxis::TranslateZ,
+			ECameraControlAxis::TranslateX,
+			ECameraControlAxis::TranslateY
 		};
-		static constexpr std::array PreferredRotationEvents = {
-			CVirtualGimbalEvent::PanRight,
-			CVirtualGimbalEvent::TiltUp,
-			CVirtualGimbalEvent::RollRight
+		static constexpr std::array PreferredRotationAxes = {
+			ECameraControlAxis::RotateY,
+			ECameraControlAxis::RotateX,
+			ECameraControlAxis::RotateZ
 		};
 
-		const bool appendedTranslation = tryAppendFirstAllowedEvent(PreferredTranslationEvents);
-		const bool appendedRotation = tryAppendFirstAllowedEvent(PreferredRotationEvents);
-		if (appendedTranslation && !appendedRotation)
-			tryAppendFirstAllowedEvent(PreferredTranslationEvents);
+		const bool filledTranslation = tryFillFirstAcceptedAxis(PreferredTranslationAxes);
+		const bool filledRotation = tryFillFirstAcceptedAxis(PreferredRotationAxes);
+		if (filledTranslation && !filledRotation)
+			tryFillFirstAcceptedAxis(PreferredTranslationAxes);
 
-		if (!outEvents.empty())
-			return;
+		if (filledAxes)
+			return controls;
 
-		for (const auto event : CVirtualGimbalEvent::VirtualEventsTypeTable)
+		for (uint32_t i = 0u; i < CameraControlAxisCount; ++i)
 		{
-			if ((allowedEvents & event) != event)
+			const auto axis = cameraControlAxisFromIndex(i);
+			if ((acceptedAxes & axis) != axis)
 				continue;
 
-			appendEvent(event);
-			return;
+			controls.axis(axis) = SCameraSmokePresetMutationDefaults::DirectControlValue;
+			return controls;
 		}
+
+		return controls;
 	}
 
 	inline ICamera* findCameraByKind(
@@ -597,7 +519,7 @@
 		return true;
 	}
 
-	inline bool runPerCameraPresetAndBindingSmoke(
+	inline bool runPerCameraPresetAndManipulationSmoke(
 		const CCameraGoalSolver& goalSolver,
 		const std::span<const smart_refctd_ptr<ICamera>> cameras,
 		SCameraSmokePresetInventory& initialPresets,
@@ -611,9 +533,6 @@
 				outError = "Null camera instance.";
 				return false;
 			}
-
-			CGimbalInputBinder inputBinder;
-            CCameraInputBindingUtilities::applyDefaultCameraInputBindingPreset(inputBinder, *camera);
 
 			const std::string cameraIdentifier(camera->getIdentifier());
 			const auto initialPreset = CCameraPresetFlowUtilities::capturePreset(goalSolver, camera, "smoke-initial");
@@ -730,17 +649,15 @@
 				}
 			}
 
-			const uint32_t allowed = camera->getAllowedVirtualEvents();
-			std::vector<CVirtualGimbalEvent> directEvents;
-			buildDirectManipulationEvents(allowed, directEvents);
-			if (directEvents.empty())
+			const auto directControls = buildDirectManipulationControls(camera->getAcceptedControls());
+			if (directControls.nonZeroAxes() == 0u)
 			{
-				outError = "No allowed virtual events for camera \"" + cameraIdentifier + "\".";
+				outError = "No accepted control axes for camera \"" + cameraIdentifier + "\".";
 				return false;
 			}
 
 			SCameraManipulationDelta directDelta = {};
-			if (!CCameraSmokeRegressionUtilities::tryManipulateCameraAndMeasureDelta(camera, { directEvents.data(), directEvents.size() }, directDelta, CameraTinyScalarEpsilon))
+			if (!CCameraSmokeRegressionUtilities::tryManipulateCameraAndMeasureDelta(camera, directControls, directDelta, CameraTinyScalarEpsilon))
 			{
 				outError = "Direct manipulate smoke failed for camera \"" + cameraIdentifier + "\".";
 				return false;
@@ -789,88 +706,9 @@
 				}
 			}
 
-			bool keyboardOk = false;
-			SCameraManipulationDelta keyboardDelta = {};
-			for (const auto key : nbl::ext::cameras::SCameraInputBindingPhysicalGroups::KeyboardProbeCodes)
-			{
-                CCameraInputBindingUtilities::applyDefaultCameraInputBindingPreset(inputBinder, *camera);
-				auto keyboardEvents = collectKeyboardVirtualEvents(inputBinder, key);
-				if (keyboardEvents.empty())
-					continue;
-				if (CCameraSmokeRegressionUtilities::tryManipulateCameraAndMeasureDelta(camera, { keyboardEvents.data(), keyboardEvents.size() }, keyboardDelta, CameraTinyScalarEpsilon))
-				{
-					keyboardOk = true;
-					break;
-				}
-			}
-			if (!keyboardOk)
-			{
-				outError = "Keyboard binding smoke failed for camera \"" + cameraIdentifier + "\".";
-				return false;
-			}
-
-            const auto& mousePreset = CCameraInputBindingUtilities::getDefaultCameraMouseMappingPreset(*camera);
-            const bool hasMoveMapping = nbl::ext::cameras::CCameraInputBindingUtilities::hasMouseRelativeMovementBinding(mousePreset);
-            const bool hasScrollMapping = nbl::ext::cameras::CCameraInputBindingUtilities::hasMouseScrollBinding(mousePreset);
-
-			SCameraManipulationDelta mouseMoveDelta = {};
-			if (hasMoveMapping)
-			{
-				const auto moveEv = buildMovementSmokeMouseEvent();
-				const std::array<SMouseEvent, 1u> rawMove = { moveEv };
-				auto filteredMoveLookDown = filterOrbitMouseEvents(camera, rawMove, true);
-				auto filteredMoveLookUp = filterOrbitMouseEvents(camera, rawMove, false);
-				const bool hasBlockedMovement = std::any_of(filteredMoveLookUp.begin(), filteredMoveLookUp.end(), [](const SMouseEvent& ev) { return ev.type == ui::SMouseEvent::EET_MOVEMENT; });
-				if (camera->hasCapability(ICamera::SphericalTarget) && hasBlockedMovement)
-				{
-					outError = "Orbit mouse movement gate failed for camera \"" + cameraIdentifier + "\".";
-					return false;
-				}
-
-                CCameraInputBindingUtilities::applyDefaultCameraInputBindingPreset(inputBinder, *camera);
-				auto mouseMoveEvents = collectMouseVirtualEvents(inputBinder, { filteredMoveLookDown.data(), filteredMoveLookDown.size() });
-				if (mouseMoveEvents.empty())
-				{
-					outError = "Mouse move virtual events missing for camera \"" + cameraIdentifier + "\".";
-					return false;
-				}
-				if (!CCameraSmokeRegressionUtilities::tryManipulateCameraAndMeasureDelta(camera, { mouseMoveEvents.data(), mouseMoveEvents.size() }, mouseMoveDelta, CameraTinyScalarEpsilon))
-				{
-					outError = "Mouse move binding smoke failed for camera \"" + cameraIdentifier + "\".";
-					return false;
-				}
-			}
-
-			SCameraManipulationDelta mouseScrollDelta = {};
-			if (hasScrollMapping)
-			{
-				const auto scrollEv = buildScrollSmokeMouseEvent();
-				const std::array<SMouseEvent, 1u> rawScroll = { scrollEv };
-				auto filteredScroll = filterOrbitMouseEvents(camera, rawScroll, false);
-
-                CCameraInputBindingUtilities::applyDefaultCameraInputBindingPreset(inputBinder, *camera);
-				auto mouseScrollEvents = collectMouseVirtualEvents(inputBinder, { filteredScroll.data(), filteredScroll.size() });
-				if (mouseScrollEvents.empty())
-				{
-					outError = "Mouse scroll virtual events missing for camera \"" + cameraIdentifier + "\".";
-					return false;
-				}
-				if (!CCameraSmokeRegressionUtilities::tryManipulateCameraAndMeasureDelta(camera, { mouseScrollEvents.data(), mouseScrollEvents.size() }, mouseScrollDelta, CameraTinyScalarEpsilon))
-				{
-					outError = "Mouse scroll binding smoke failed for camera \"" + cameraIdentifier + "\".";
-					return false;
-				}
-			}
-
 			std::cout << "[headless-camera-smoke][pass] " << cameraIdentifier
 				<< " direct_pos_delta=" << directDelta.position
 				<< " direct_rot_delta_deg=" << directDelta.rotationDeg
-				<< " kb_pos_delta=" << keyboardDelta.position
-				<< " kb_rot_delta_deg=" << keyboardDelta.rotationDeg
-				<< " mouse_move_pos_delta=" << mouseMoveDelta.position
-				<< " mouse_move_rot_delta_deg=" << mouseMoveDelta.rotationDeg
-				<< " mouse_scroll_pos_delta=" << mouseScrollDelta.position
-				<< " mouse_scroll_rot_delta_deg=" << mouseScrollDelta.rotationDeg
 				<< std::endl;
 		}
 
@@ -965,8 +803,8 @@
 			{ "enabled", true },
 			{ "capture_prefix", SCameraSmokeRuntimeParserDefaults::CapturePrefix },
 			{ "camera_controls", {
-				{ "keyboard_scale", SCameraSmokeRuntimeParserDefaults::KeyboardScale },
-				{ "rotation_scale", SCameraSmokeRuntimeParserDefaults::RotationScale }
+				{ "translate_scale", SCameraSmokeRuntimeParserDefaults::TranslateScale },
+				{ "rotate_scale", SCameraSmokeRuntimeParserDefaults::RotateScale }
 			} },
 			{ "events", camera_json_t::array({
 				camera_json_t{
@@ -1248,8 +1086,8 @@
 		}
 		if (!parsed.enabled ||
 			parsed.capturePrefix != SCameraSmokeRuntimeParserDefaults::CapturePrefix ||
-			!parsed.cameraControls.hasKeyboardScale ||
-			!parsed.cameraControls.hasRotationScale)
+			!parsed.cameraControls.hasTranslateScale ||
+			!parsed.cameraControls.hasRotateScale)
 		{
 			if (outError)
 				*outError = "Scripted runtime parser smoke lost top-level metadata.";
@@ -1356,10 +1194,9 @@
 		}
 
 		{
-			CVirtualGimbalEvent stepEvent = {};
-			stepEvent.type = CVirtualGimbalEvent::MoveRight;
-			stepEvent.magnitude = SCameraSmokeScriptedCheckDefaults::StepEventMagnitude;
-			if (!orbitCamera->manipulate({ &stepEvent, 1u }))
+			SCameraControls stepControls = {};
+			stepControls.rotate.y = SCameraSmokeScriptedCheckDefaults::StepYawRadians;
+			if (!orbitCamera->manipulate(stepControls))
 			{
 				if (outError)
 					*outError = "Scripted check runner smoke failed to manipulate the camera for step validation.";

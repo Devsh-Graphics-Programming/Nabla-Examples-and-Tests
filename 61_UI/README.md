@@ -124,7 +124,9 @@ It is no longer a giant committed frame dump.
 
 `61_UI` consumes the shared stack directly:
 
-- [`CCameraInputBindingUtilities.hpp`](../../include/nbl/ext/Cameras/CCameraInputBindingUtilities.hpp)
+- [`SCameraControls.hpp`](../../include/nbl/ext/Cameras/SCameraControls.hpp)
+- [`CCameraMouseKeyboardController.hpp`](../../include/nbl/ext/Cameras/CCameraMouseKeyboardController.hpp)
+- [`CCameraMouseKeyboardPresets.hpp`](../../include/nbl/ext/Cameras/CCameraMouseKeyboardPresets.hpp)
 - [`CCameraPresetFlow.hpp`](../../include/nbl/ext/Cameras/CCameraPresetFlow.hpp)
 - [`CCameraFollowUtilities.hpp`](../../include/nbl/ext/Cameras/CCameraFollowUtilities.hpp)
 - [`CCameraFollowRegressionUtilities.hpp`](../../include/nbl/ext/Cameras/CCameraFollowRegressionUtilities.hpp)

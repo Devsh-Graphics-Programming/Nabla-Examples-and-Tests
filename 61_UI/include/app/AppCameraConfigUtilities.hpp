@@ -12,22 +12,9 @@
 namespace nbl::system
 {
 
-struct SCameraInputBindingCollections final
-{
-    std::vector<ext::cameras::IGimbalBindingLayout::keyboard_to_virtual_events_t> keyboard;
-    std::vector<ext::cameras::IGimbalBindingLayout::mouse_to_virtual_events_t> mouse;
-};
-
-struct SCameraViewportBindingSelection final
-{
-    std::optional<uint32_t> keyboard = std::nullopt;
-    std::optional<uint32_t> mouse = std::nullopt;
-};
-
 struct SCameraViewportConfig final
 {
     uint32_t projectionIx = 0u;
-    SCameraViewportBindingSelection bindings = {};
 };
 
 struct SCameraPlanarConfig final
@@ -52,7 +39,6 @@ struct SCameraConfigCollections final
     std::string embeddedScriptedInputText = {};
     std::vector<core::smart_refctd_ptr<ext::cameras::ICamera>> cameras = {};
     std::vector<ext::cameras::IPlanarProjection::CProjection> projections = {};
-    SCameraInputBindingCollections bindings = {};
     SCameraPlanarConfigCollections planarConfig = {};
 
     inline bool hasEmbeddedScriptedInputText() const

@@ -236,25 +236,31 @@ void App::syncDynamicPerspectiveForPlanar(planar_projection_t* planar, ICamera* 
 		nbl::ext::cameras::CCameraProjectionUtilities::syncDynamicPerspectiveProjection(camera, projection);
 }
 
-void App::logScriptedVirtualEvents(const char* label, std::span<const CVirtualGimbalEvent> events) const
+void App::logScriptedVirtualEvents(const char* label, const SCameraControls& controls) const
 {
 	if (!m_scriptedInput.log)
 		return;
 
-	for (const auto& event : events)
+	for (uint32_t i = 0u; i < CameraControlAxisCount; ++i)
 	{
+		const auto axis = cameraControlAxisFromIndex(i);
+		const auto value = controls.axis(axis);
+		if (value == 0.0)
+			continue;
+
 		m_logger->log(
-			"[script] %s virtual %s magnitude=%.6f",
+			"[script] %s control %s value=%.6f",
 			ILogger::ELL_INFO,
 			label,
-			CVirtualGimbalEvent::virtualEventToString(event.type).data(),
-			event.magnitude);
+			std::string(cameraControlAxisName(axis)).c_str(),
+			value);
 	}
 }
 
 void App::applyScriptedImguizmoInput(SScriptedFrameInputState& scriptedFrame, const bool skipCameraInput)
 {
-	scriptedFrame.imguizmoVirtualEvents.clear();
+	scriptedFrame.imguizmoControls = {};
+	scriptedFrame.hasImguizmoControls = false;
 	if (!(m_scriptedInput.enabled && !scriptedFrame.frameEvents.imguizmo.empty() && !skipCameraInput))
 		return;
 
@@ -263,22 +269,34 @@ void App::applyScriptedImguizmoInput(SScriptedFrameInputState& scriptedFrame, co
 		return;
 	auto& binding = *runtimeContext.viewport.binding;
 	auto* camera = runtimeContext.viewport.camera;
-
-	CGimbalInputBinder imguizmoBinding;
-    CCameraInputBindingUtilities::applyDefaultCameraInputBindingPreset(imguizmoBinding, *camera);
-	auto collectedEvents = imguizmoBinding.collectVirtualEvents(m_nextPresentationTimestamp, {
-		.imguizmoEvents = { scriptedFrame.frameEvents.imguizmo.data(), scriptedFrame.frameEvents.imguizmo.size() }
-	});
-	auto& imguizmoEvents = collectedEvents.events;
-	const uint32_t virtualEventCount = collectedEvents.imguizmoCount;
-	if (!virtualEventCount)
+	if (!camera)
 		return;
 
-	scriptedFrame.imguizmoVirtualEvents.assign(imguizmoEvents.begin(), imguizmoEvents.begin() + virtualEventCount);
-	const auto virtualEventSpan = std::span<const CVirtualGimbalEvent>(scriptedFrame.imguizmoVirtualEvents.data(), virtualEventCount);
-	camera->manipulate(virtualEventSpan);
-	appendVirtualEventLog("imguizmo", "ImGuizmo", binding.activePlanarIx, camera, virtualEventSpan.data(), virtualEventCount);
-	logScriptedVirtualEvents("imguizmo", virtualEventSpan);
+	// a gizmo hands over a delta transform; its translation is already in the camera's own frame and its
+	// rotation is a delta orientation, so the frame is just those two decomposed. Scale has no control axis.
+	SCameraControls controls = {};
+	for (const auto& deltaTransform : scriptedFrame.frameEvents.imguizmo)
+	{
+		SRigidTransformComponents<float64_t> components = {};
+		if (!CCameraMathUtilities::tryExtractRigidTransformComponents<float64_t>(
+				getCastedMatrix<float64_t>(deltaTransform), components))
+		{
+			continue;
+		}
+
+		controls.translate += components.translation;
+		controls.rotate += CCameraMathUtilities::getCameraOrientationEulerRadians<float64_t>(components.orientation);
+	}
+
+	controls = controls.masked(camera->getAcceptedControls());
+	if (controls.nonZeroAxes() == 0u)
+		return;
+
+	scriptedFrame.imguizmoControls = controls;
+	scriptedFrame.hasImguizmoControls = true;
+	camera->manipulate(controls);
+	appendVirtualEventLog("imguizmo", "ImGuizmo", binding.activePlanarIx, camera, controls);
+	logScriptedVirtualEvents("imguizmo", controls);
 	logScriptedCameraPose("imguizmo", camera);
 }
 

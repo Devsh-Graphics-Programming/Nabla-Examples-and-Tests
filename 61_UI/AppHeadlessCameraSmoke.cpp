@@ -63,7 +63,7 @@ bool App::runHeadlessCameraSmoke(argparse::ArgumentParser& program, smart_refctd
 	SCameraSmokePresetInventory initialPresets = {};
 	if (!runSmokeStep([&](std::string& smokeError)
 	{
-		return runPerCameraPresetAndBindingSmoke(m_cameraGoalSolver, { cameras.data(), cameras.size() }, initialPresets, smokeError);
+		return runPerCameraPresetAndManipulationSmoke(m_cameraGoalSolver, { cameras.data(), cameras.size() }, initialPresets, smokeError);
 	}))
 	{
 		return false;

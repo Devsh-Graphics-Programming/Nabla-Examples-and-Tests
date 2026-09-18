@@ -15,27 +15,6 @@ inline void appendFocusedChannelEvents(
 	}, logger);
 }
 
-inline void scaleCapturedMouseEvents(
-	std::vector<SMouseEvent>& mouseEvents,
-	const CameraControlSettings& cameraControls)
-{
-	for (auto& event : mouseEvents)
-	{
-		if (event.type == ui::SMouseEvent::EET_SCROLL)
-		{
-			event.scrollEvent.verticalScroll *= cameraControls.mouseScrollScale;
-			event.scrollEvent.horizontalScroll *= cameraControls.mouseScrollScale;
-			continue;
-		}
-
-		if (event.type == ui::SMouseEvent::EET_MOVEMENT)
-		{
-			event.movementEvent.relativeMovementX *= cameraControls.mouseMoveScale;
-			event.movementEvent.relativeMovementY *= cameraControls.mouseMoveScale;
-		}
-	}
-}
-
 void App::updatePresentationTiming()
 {
 	m_inputSystem->getDefaultMouse(&mouse);
@@ -71,9 +50,9 @@ void App::buildCameraInputEvents(
 	std::vector<SKeyboardEvent>& outKeyboardEvents,
 	std::vector<SMouseEvent>& outMouseEvents) const
 {
+	// the camera sees the events exactly as they were captured; sensitivity lives in the controller's binding
 	outKeyboardEvents = capturedEvents.keyboard;
 	outMouseEvents = capturedEvents.mouse;
-	scaleCapturedMouseEvents(outMouseEvents, m_cameraControls);
 }
 
 nbl::ext::imgui::UI::SUpdateParameters App::buildUiUpdateParameters(const SCapturedUiEvents& capturedEvents) const

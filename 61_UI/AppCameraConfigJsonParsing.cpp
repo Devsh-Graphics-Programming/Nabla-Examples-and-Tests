@@ -5,7 +5,6 @@
 #include <initializer_list>
 #include <type_traits>
 
-#include "keysmapping.hpp"
 #include "nlohmann/json.hpp"
 #include "nbl/ext/Cameras/CArcballCamera.hpp"
 #include "nbl/ext/Cameras/CChaseCamera.hpp"
@@ -33,10 +32,8 @@ struct SCameraConfigJsonKeys final
     static constexpr std::string_view BaseFov = "baseFov";
     static constexpr std::string_view Cameras = "cameras";
     static constexpr std::string_view Projections = "projections";
-    static constexpr std::string_view Bindings = "bindings";
     static constexpr std::string_view Keyboard = "keyboard";
     static constexpr std::string_view Mouse = "mouse";
-    static constexpr std::string_view Mappings = "mappings";
     static constexpr std::string_view ScriptedInput = "scripted_input";
     static constexpr std::string_view Viewports = "viewports";
     static constexpr std::string_view Planars = "planars";
@@ -68,8 +65,6 @@ struct SCameraConfigTypeNames final
 template<typename Camera>
 bool tryCreateOrientationCameraFromSpec(
     const camera_json_t& jCamera,
-    const double moveScale,
-    const double rotationScale,
     std::string_view typeName,
     std::string& error,
     core::smart_refctd_ptr<ext::cameras::ICamera>& outCamera);
@@ -77,16 +72,12 @@ bool tryCreateOrientationCameraFromSpec(
 template<typename Camera>
 bool tryCreateTargetCameraFromSpec(
     const camera_json_t& jCamera,
-    const double moveScale,
-    const double rotationScale,
     std::string_view typeName,
     std::string& error,
     core::smart_refctd_ptr<ext::cameras::ICamera>& outCamera);
 
 bool tryCreateDollyZoomCameraFromSpec(
     const camera_json_t& jCamera,
-    const double moveScale,
-    const double rotationScale,
     std::string_view typeName,
     std::string& error,
     core::smart_refctd_ptr<ext::cameras::ICamera>& outCamera);
@@ -95,30 +86,26 @@ struct SCameraConfigCameraFactorySpec final
 {
     using create_t = bool (*)(
         const camera_json_t&,
-        double,
-        double,
         std::string_view,
         std::string&,
         core::smart_refctd_ptr<ext::cameras::ICamera>&);
 
     std::string_view typeName = {};
     create_t create = nullptr;
-    double moveScale = SCameraAppCameraFactoryDefaults::DefaultMoveScale;
-    double rotationScale = SCameraAppCameraFactoryDefaults::DefaultRotateScale;
 };
 
 inline constexpr std::array<SCameraConfigCameraFactorySpec, 11u> CameraFactorySpecs = {{
-    { SCameraConfigTypeNames::Fps, &tryCreateOrientationCameraFromSpec<ext::cameras::CFPSCamera>, SCameraAppCameraFactoryDefaults::DefaultMoveScale, SCameraAppCameraFactoryDefaults::DefaultRotateScale },
-    { SCameraConfigTypeNames::Free, &tryCreateOrientationCameraFromSpec<ext::cameras::CFreeCamera>, SCameraAppCameraFactoryDefaults::DefaultMoveScale, SCameraAppCameraFactoryDefaults::DefaultRotateScale },
-    { SCameraConfigTypeNames::Orbit, &tryCreateTargetCameraFromSpec<ext::cameras::COrbitCamera>, SCameraAppCameraFactoryDefaults::TargetRigMoveScale, SCameraAppCameraFactoryDefaults::DefaultRotateScale },
-    { SCameraConfigTypeNames::Arcball, &tryCreateTargetCameraFromSpec<ext::cameras::CArcballCamera>, SCameraAppCameraFactoryDefaults::TargetRigMoveScale, SCameraAppCameraFactoryDefaults::DefaultRotateScale },
-    { SCameraConfigTypeNames::Turntable, &tryCreateTargetCameraFromSpec<ext::cameras::CTurntableCamera>, SCameraAppCameraFactoryDefaults::TargetRigMoveScale, SCameraAppCameraFactoryDefaults::DefaultRotateScale },
-    { SCameraConfigTypeNames::TopDown, &tryCreateTargetCameraFromSpec<ext::cameras::CTopDownCamera>, SCameraAppCameraFactoryDefaults::TargetRigMoveScale, SCameraAppCameraFactoryDefaults::DefaultRotateScale },
-    { SCameraConfigTypeNames::Isometric, &tryCreateTargetCameraFromSpec<ext::cameras::CIsometricCamera>, SCameraAppCameraFactoryDefaults::TargetRigMoveScale, SCameraAppCameraFactoryDefaults::DefaultRotateScale },
-    { SCameraConfigTypeNames::Chase, &tryCreateTargetCameraFromSpec<ext::cameras::CChaseCamera>, SCameraAppCameraFactoryDefaults::TargetRigMoveScale, SCameraAppCameraFactoryDefaults::DefaultRotateScale },
-    { SCameraConfigTypeNames::Dolly, &tryCreateTargetCameraFromSpec<ext::cameras::CDollyCamera>, SCameraAppCameraFactoryDefaults::TargetRigMoveScale, SCameraAppCameraFactoryDefaults::DefaultRotateScale },
-    { SCameraConfigTypeNames::PathRig, &tryCreateTargetCameraFromSpec<ext::cameras::CPathCamera>, SCameraAppCameraFactoryDefaults::TargetRigMoveScale, SCameraAppCameraFactoryDefaults::DefaultRotateScale },
-    { SCameraConfigTypeNames::DollyZoom, &tryCreateDollyZoomCameraFromSpec, SCameraAppCameraFactoryDefaults::TargetRigMoveScale, SCameraAppCameraFactoryDefaults::DefaultRotateScale }
+    { SCameraConfigTypeNames::Fps, &tryCreateOrientationCameraFromSpec<ext::cameras::CFPSCamera> },
+    { SCameraConfigTypeNames::Free, &tryCreateOrientationCameraFromSpec<ext::cameras::CFreeCamera> },
+    { SCameraConfigTypeNames::Orbit, &tryCreateTargetCameraFromSpec<ext::cameras::COrbitCamera> },
+    { SCameraConfigTypeNames::Arcball, &tryCreateTargetCameraFromSpec<ext::cameras::CArcballCamera> },
+    { SCameraConfigTypeNames::Turntable, &tryCreateTargetCameraFromSpec<ext::cameras::CTurntableCamera> },
+    { SCameraConfigTypeNames::TopDown, &tryCreateTargetCameraFromSpec<ext::cameras::CTopDownCamera> },
+    { SCameraConfigTypeNames::Isometric, &tryCreateTargetCameraFromSpec<ext::cameras::CIsometricCamera> },
+    { SCameraConfigTypeNames::Chase, &tryCreateTargetCameraFromSpec<ext::cameras::CChaseCamera> },
+    { SCameraConfigTypeNames::Dolly, &tryCreateTargetCameraFromSpec<ext::cameras::CDollyCamera> },
+    { SCameraConfigTypeNames::PathRig, &tryCreateTargetCameraFromSpec<ext::cameras::CPathCamera> },
+    { SCameraConfigTypeNames::DollyZoom, &tryCreateDollyZoomCameraFromSpec }
 }};
 
 inline bool jsonContainsAll(const camera_json_t& json, std::initializer_list<std::string_view> keys)
@@ -155,48 +142,9 @@ inline core::smart_refctd_ptr<ext::cameras::ICamera> makeCameraAsBase(Args&&... 
     return core::make_smart_refctd_ptr<Camera>(std::forward<Args>(args)...);
 }
 
-template<typename TMap, typename TResolveCode>
-bool tryLoadBindingMapFromJson(
-    const camera_json_t& jBinding,
-    const char* bindingTypeLabel,
-    const char* bindingCodeLabel,
-    TResolveCode&& resolveCode,
-    TMap& outBinding,
-    std::string& error)
-{
-    using code_type = std::remove_cvref_t<std::invoke_result_t<TResolveCode, const char*>>;
-    outBinding.clear();
-    if (!jBinding.contains(SCameraConfigJsonKeys::Mappings))
-    {
-        error = std::string("Expected \"mappings\" keyword for ") + bindingTypeLabel + " binding definition.";
-        return false;
-    }
-
-    for (const auto& [key, value] : jBinding[SCameraConfigJsonKeys::Mappings].items())
-    {
-        const auto nativeCode = resolveCode(key.c_str());
-        if (nativeCode == code_type{})
-        {
-            error = std::string("Invalid native ") + bindingCodeLabel + " \"" + key + "\" code mapping for " + bindingTypeLabel + " binding.";
-            return false;
-        }
-
-        outBinding[nativeCode] = ext::cameras::CVirtualGimbalEvent::stringToVirtualEvent(value.get<std::string>());
-    }
-
-    return true;
-}
-
-inline void initializeCameraMotionConfig(ext::cameras::ICamera& camera, const double moveScale, const double rotationScale)
-{
-    camera.setMotionScales(moveScale, rotationScale);
-}
-
 template<typename Camera>
 inline bool tryCreateOrientationCameraFromSpec(
     const camera_json_t& jCamera,
-    const double moveScale,
-    const double rotationScale,
     std::string_view typeName,
     std::string& error,
     core::smart_refctd_ptr<ext::cameras::ICamera>& outCamera)
@@ -210,7 +158,7 @@ inline bool tryCreateOrientationCameraFromSpec(
     auto camera = makeCameraAsBase<Camera>(
         readJsonFloat64Vec3(jCamera, SCameraConfigJsonKeys::Position),
         readJsonQuaternion(jCamera, SCameraConfigJsonKeys::Orientation));
-    initializeCameraMotionConfig(*camera, moveScale, rotationScale);
+
     outCamera = std::move(camera);
     return true;
 }
@@ -218,8 +166,6 @@ inline bool tryCreateOrientationCameraFromSpec(
 template<typename Camera>
 inline bool tryCreateTargetCameraFromSpec(
     const camera_json_t& jCamera,
-    const double moveScale,
-    const double rotationScale,
     std::string_view typeName,
     std::string& error,
     core::smart_refctd_ptr<ext::cameras::ICamera>& outCamera)
@@ -233,15 +179,13 @@ inline bool tryCreateTargetCameraFromSpec(
     auto camera = makeCameraAsBase<Camera>(
         readJsonFloat64Vec3(jCamera, SCameraConfigJsonKeys::Position),
         readJsonFloat64Vec3(jCamera, SCameraConfigJsonKeys::Target));
-    initializeCameraMotionConfig(*camera, moveScale, rotationScale);
+
     outCamera = std::move(camera);
     return true;
 }
 
 inline bool tryCreateDollyZoomCameraFromSpec(
     const camera_json_t& jCamera,
-    const double moveScale,
-    const double rotationScale,
     std::string_view typeName,
     std::string& error,
     core::smart_refctd_ptr<ext::cameras::ICamera>& outCamera)
@@ -262,7 +206,7 @@ inline bool tryCreateDollyZoomCameraFromSpec(
             readJsonFloat64Vec3(jCamera, SCameraConfigJsonKeys::Position),
             readJsonFloat64Vec3(jCamera, SCameraConfigJsonKeys::Target));
 
-    initializeCameraMotionConfig(*camera, moveScale, rotationScale);
+
     outCamera = std::move(camera);
     return true;
 }
@@ -277,45 +221,15 @@ inline const SCameraConfigCameraFactorySpec* findCameraFactorySpec(const std::st
     return nullptr;
 }
 
-inline bool tryParseViewportBindingSelectionFromJson(
-    const camera_json_t& json,
-    const char* label,
-    SCameraViewportBindingSelection& outSelection,
-    std::string& error)
-{
-    outSelection = {};
-    if (!json.is_object())
-    {
-        error = std::string("Expected object for ") + label + ".";
-        return false;
-    }
-
-    const auto tryParseIx = [&](const std::string_view key, std::optional<uint32_t>& outIx) -> bool
-    {
-        if (!json.contains(key))
-            return true;
-        if (!json[key].is_number_unsigned())
-        {
-            error = std::string("Expected unsigned integer for \"") + std::string(key) + "\" in " + label + ".";
-            return false;
-        }
-        outIx = json[key].get<uint32_t>();
-        return true;
-    };
-
-    return tryParseIx(SCameraConfigJsonKeys::Keyboard, outSelection.keyboard) &&
-        tryParseIx(SCameraConfigJsonKeys::Mouse, outSelection.mouse);
-}
-
 inline bool tryParseViewportConfigFromJson(
     const camera_json_t& json,
     SCameraViewportConfig& outConfig,
     std::string& error)
 {
     outConfig = {};
-    if (!jsonContainsAll(json, { SCameraConfigJsonKeys::Projection, SCameraConfigJsonKeys::Bindings }))
+    if (!json.contains(SCameraConfigJsonKeys::Projection))
     {
-        error = "\"projection\" or \"bindings\" missing in viewport object.";
+        error = "\"projection\" missing in viewport object.";
         return false;
     }
     if (!json[SCameraConfigJsonKeys::Projection].is_number_unsigned())
@@ -325,11 +239,7 @@ inline bool tryParseViewportConfigFromJson(
     }
 
     outConfig.projectionIx = json[SCameraConfigJsonKeys::Projection].get<uint32_t>();
-    return tryParseViewportBindingSelectionFromJson(
-        json[SCameraConfigJsonKeys::Bindings],
-        "viewport bindings",
-        outConfig.bindings,
-        error);
+    return true;
 }
 
 inline bool tryParsePlanarConfigFromJson(
@@ -356,47 +266,6 @@ inline bool tryParsePlanarConfigFromJson(
 
     outConfig.cameraIx = json[SCameraConfigJsonKeys::Camera].get<uint32_t>();
     outConfig.viewportIxs = json[SCameraConfigJsonKeys::Viewports].get<std::vector<uint32_t>>();
-    return true;
-}
-
-template<typename Collection, typename ResolveCode>
-bool tryLoadBindingCollectionFromJson(
-    const camera_json_t& root,
-    const std::string_view key,
-    const char* bindingTypeLabel,
-    const char* bindingCodeLabel,
-    ResolveCode&& resolveCode,
-    Collection& outCollection,
-    std::string& error)
-{
-    outCollection.clear();
-    if (!root.contains(key))
-    {
-        error = std::string("Expected \"") + std::string(key) + "\" keyword in bindings definition.";
-        return false;
-    }
-    if (!root[key].is_array())
-    {
-        error = std::string("\"") + std::string(key) + "\" bindings must be an array.";
-        return false;
-    }
-
-    outCollection.reserve(root[key].size());
-    for (const auto& bindingJson : root[key])
-    {
-        auto& binding = outCollection.emplace_back();
-        if (!tryLoadBindingMapFromJson(
-                bindingJson,
-                bindingTypeLabel,
-                bindingCodeLabel,
-                std::forward<ResolveCode>(resolveCode),
-                binding,
-                error))
-        {
-            return false;
-        }
-    }
-
     return true;
 }
 
@@ -481,8 +350,6 @@ inline bool tryCreateCameraFromJson(
 
     return spec->create(
         jCamera,
-        spec->moveScale,
-        spec->rotationScale,
         spec->typeName,
         error,
         outCamera);
@@ -558,46 +425,6 @@ bool tryLoadProjectionCollectionFromJson(
     return true;
 }
 
-bool tryLoadInputBindingCollectionsFromJson(
-    const camera_json_t& json,
-    std::string& error,
-    SCameraInputBindingCollections& outBindings)
-{
-    outBindings = {};
-    if (!json.contains(SCameraConfigJsonKeys::Bindings))
-    {
-        error = "Expected \"bindings\" keyword in camera JSON.";
-        return false;
-    }
-
-    const auto& jBindings = json[SCameraConfigJsonKeys::Bindings];
-    if (!tryLoadBindingCollectionFromJson(
-            jBindings,
-            SCameraConfigJsonKeys::Keyboard,
-            "keyboard",
-            "key",
-            [](const char* key) { return stringToKeyCode(key); },
-            outBindings.keyboard,
-            error))
-    {
-        return false;
-    }
-
-    if (!tryLoadBindingCollectionFromJson(
-            jBindings,
-            SCameraConfigJsonKeys::Mouse,
-            "mouse",
-            "key",
-            [](const char* key) { return stringToMouseCode(key); },
-            outBindings.mouse,
-            error))
-    {
-        return false;
-    }
-
-    return true;
-}
-
 bool tryLoadPlanarConfigCollectionsFromJson(
     const camera_json_t& json,
     std::string& error,
@@ -652,9 +479,6 @@ bool tryBuildCameraConfigCollections(
         return false;
 
     if (!tryLoadProjectionCollectionFromJson(json, error, outCollections.projections))
-        return false;
-
-    if (!tryLoadInputBindingCollectionsFromJson(json, error, outCollections.bindings))
         return false;
 
     if (!tryLoadPlanarConfigCollectionsFromJson(json, error, outCollections.planarConfig))

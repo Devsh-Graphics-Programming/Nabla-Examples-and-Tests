@@ -79,51 +79,6 @@ bool App::onAppTerminated()
 	return base_t::onAppTerminated();
 }
 
-void App::syncWindowInputBinding(SWindowControlBinding& binding)
-{
-	if (!binding.boundProjectionIx.has_value())
-		return;
-	if (binding.activePlanarIx >= m_planarProjections.size())
-		return;
-
-	auto& planar = m_planarProjections[binding.activePlanarIx];
-	if (!planar)
-		return;
-
-	const auto projectionIx = binding.boundProjectionIx.value();
-	auto& projections = planar->getPlanarProjections();
-	if (projectionIx >= projections.size())
-		return;
-
-	if (binding.inputBindingPlanarIx == binding.activePlanarIx && binding.inputBindingProjectionIx == projectionIx)
-		return;
-
-	binding.inputBinding.copyBindingLayoutFrom(projections[projectionIx].getInputBinding());
-	binding.inputBindingPlanarIx = binding.activePlanarIx;
-	binding.inputBindingProjectionIx = projectionIx;
-}
-
-void App::syncWindowInputBindingToProjection(SWindowControlBinding& binding)
-{
-	if (!binding.boundProjectionIx.has_value())
-		return;
-	if (binding.activePlanarIx >= m_planarProjections.size())
-		return;
-
-	auto& planar = m_planarProjections[binding.activePlanarIx];
-	if (!planar)
-		return;
-
-	const auto projectionIx = binding.boundProjectionIx.value();
-	auto& projections = planar->getPlanarProjections();
-	if (projectionIx >= projections.size())
-		return;
-
-	projections[projectionIx].getInputBinding().copyBindingLayoutFrom(binding.inputBinding);
-	binding.inputBindingPlanarIx = binding.activePlanarIx;
-	binding.inputBindingProjectionIx = projectionIx;
-}
-
 bool App::shouldCaptureOSCursor()
 {
 	if (!m_viewports.enableActiveCameraMovement || !m_viewports.captureCursorInMoveMode)

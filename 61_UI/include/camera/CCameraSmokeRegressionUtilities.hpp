@@ -15,6 +15,7 @@
 #include "nbl/ext/Cameras/CCameraMathUtilities.hpp"
 #include "CCameraPresetFlow.hpp"
 #include "nbl/ext/Cameras/ICamera.hpp"
+#include "nbl/ext/Cameras/SCameraControls.hpp"
 
 using namespace nbl;
 using namespace nbl::ext::cameras;
@@ -56,12 +57,12 @@ public:
     /// @brief Manipulate a camera and report how far its pose moved in position and Euler-angle terms.
     static inline bool tryManipulateCameraAndMeasureDelta(
         ICamera* camera,
-        std::span<const CVirtualGimbalEvent> events,
+        const SCameraControls& controls,
         SCameraManipulationDelta& outDelta,
         const double tinyEpsilon = SCameraSmokeComparisonThresholds::TinyScalarEpsilon)
     {
         outDelta = {};
-        if (!camera || events.empty())
+        if (!camera || controls.nonZeroAxes() == 0u)
             return false;
 
         const auto& beforeGimbal = camera->getGimbal();
@@ -70,7 +71,7 @@ public:
         if (!CCameraMathUtilities::isFiniteVec3(beforePosition) || !CCameraMathUtilities::isFiniteQuaternion(beforeOrientation))
             return false;
 
-        if (!camera->manipulate(events))
+        if (!camera->manipulate(controls))
             return false;
 
         if (!tryComputeCameraManipulationDelta(camera, beforePosition, beforeOrientation, outDelta))

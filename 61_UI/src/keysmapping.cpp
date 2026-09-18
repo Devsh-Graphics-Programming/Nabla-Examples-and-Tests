@@ -1,244 +1,190 @@
 #include "keysmapping.hpp"
 #include "app/AppTypes.hpp"
 
+#include <array>
 #include <string>
-#include <unordered_map>
 
-inline std::string buildKeyCodeLabel(const ui::E_KEY_CODE keyCode)
+namespace
 {
-    return std::string(1u, ui::keyCodeToChar(keyCode, true));
-}
 
-inline ImVec4 getBindingActiveStatusColor(const bool active)
+/// @brief Every key a binding may name, in the order the pickers list them.
+const std::vector<ui::E_KEY_CODE>& getSelectableKeyCodes()
 {
-    return active ? SCameraAppBindingEditorUiDefaults::ActiveStatusColor : SCameraAppBindingEditorUiDefaults::InactiveStatusColor;
-}
-
-bool handleAddMapping(const char* tableID, IGimbalBindingLayout* layout, IGimbalBindingLayout::BindingDomain activeBindingDomain, CVirtualGimbalEvent::VirtualEventType& selectedEventType, ui::E_KEY_CODE& newKey, ext::cameras::E_MOUSE_CODE& newMouseCode, bool& addMode)
-{
-    bool anyMapUpdated = false;
-    ImGui::BeginTable(tableID, 3, ImGuiTableFlags_Borders | ImGuiTableFlags_Resizable | ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingStretchSame);
-    ImGui::TableSetupColumn("Virtual Event", ImGuiTableColumnFlags_WidthStretch, SCameraAppBindingEditorUiDefaults::TableColumnWeight);
-    ImGui::TableSetupColumn("Key", ImGuiTableColumnFlags_WidthStretch, SCameraAppBindingEditorUiDefaults::TableColumnWeight);
-    ImGui::TableSetupColumn("Actions", ImGuiTableColumnFlags_WidthStretch, SCameraAppBindingEditorUiDefaults::TableColumnWeight);
-    ImGui::TableHeadersRow();
-
-    ImGui::TableNextRow();
-    ImGui::TableSetColumnIndex(0);
-    ImGui::AlignTextToFramePadding();
-    if (ImGui::BeginCombo("##selectEvent", CVirtualGimbalEvent::virtualEventToString(selectedEventType).data()))
+    static const std::vector<ui::E_KEY_CODE> codes = []()
     {
-        for (const auto& eventType : CVirtualGimbalEvent::VirtualEventsTypeTable)
+        std::vector<ui::E_KEY_CODE> out;
+        out.push_back(ui::EKC_NONE);
+        for (uint32_t code = 1u; code < ui::EKC_COUNT; ++code)
         {
-            bool isSelected = (selectedEventType == eventType);
-            if (ImGui::Selectable(CVirtualGimbalEvent::virtualEventToString(eventType).data(), isSelected))
-                selectedEventType = eventType;
-            if (isSelected)
+            const auto key = static_cast<ui::E_KEY_CODE>(code);
+            // a key with no stable name cannot be round-tripped through a saved binding, so it is not offered
+            if (keyCodeToString(key) != "NONE")
+                out.push_back(key);
+        }
+        return out;
+    }();
+    return codes;
+}
+
+std::string getKeyLabel(const ui::E_KEY_CODE key)
+{
+    if (key == ui::EKC_NONE)
+        return "none";
+    return std::string(keyCodeToString(key));
+}
+
+std::string getGateLabel(const std::optional<ui::E_MOUSE_BUTTON>& gate)
+{
+    if (!gate.has_value())
+        return "always";
+    return std::string(mouseButtonToString(gate.value()));
+}
+
+bool drawKeyPicker(const char* id, ui::E_KEY_CODE& key)
+{
+    bool changed = false;
+    ImGui::PushID(id);
+    ImGui::SetNextItemWidth(-FLT_MIN);
+    if (ImGui::BeginCombo("##key", getKeyLabel(key).c_str()))
+    {
+        for (const auto candidate : getSelectableKeyCodes())
+        {
+            const bool selected = candidate == key;
+            if (ImGui::Selectable(getKeyLabel(candidate).c_str(), selected))
+            {
+                key = candidate;
+                changed = true;
+            }
+            if (selected)
                 ImGui::SetItemDefaultFocus();
         }
         ImGui::EndCombo();
     }
+    ImGui::PopID();
+    return changed;
+}
 
-    ImGui::TableSetColumnIndex(1);
-    if (activeBindingDomain == IGimbalBindingLayout::Keyboard)
-    {
-        const auto newKeyDisplay = buildKeyCodeLabel(newKey);
-        if (ImGui::BeginCombo("##selectKey", newKeyDisplay.c_str()))
-        {
-            for (int i = ui::E_KEY_CODE::EKC_A; i <= ui::E_KEY_CODE::EKC_Z; ++i)
-            {
-                bool isSelected = (newKey == static_cast<ui::E_KEY_CODE>(i));
-                const auto label = buildKeyCodeLabel(static_cast<ui::E_KEY_CODE>(i));
-                if (ImGui::Selectable(label.c_str(), isSelected))
-                    newKey = static_cast<ui::E_KEY_CODE>(i);
-                if (isSelected)
-                    ImGui::SetItemDefaultFocus();
-            }
-            ImGui::EndCombo();
-        }
-    }
-    else
-    {
-        if (ImGui::BeginCombo("##selectMouseKey", ext::cameras::mouseCodeToString(newMouseCode).data()))
-        {
-            for (int i = ext::cameras::EMC_LEFT_BUTTON; i < ext::cameras::EMC_COUNT; ++i)
-            {
-                bool isSelected = (newMouseCode == static_cast<ext::cameras::E_MOUSE_CODE>(i));
-                if (ImGui::Selectable(ext::cameras::mouseCodeToString(static_cast<ext::cameras::E_MOUSE_CODE>(i)).data(), isSelected))
-                    newMouseCode = static_cast<ext::cameras::E_MOUSE_CODE>(i);
-                if (isSelected)
-                    ImGui::SetItemDefaultFocus();
-            }
-            ImGui::EndCombo();
-        }
-    }
+bool drawGatePicker(const char* id, std::optional<ui::E_MOUSE_BUTTON>& gate)
+{
+    static constexpr std::array<ui::E_MOUSE_BUTTON, ui::EMB_COUNT> Buttons = {
+        ui::EMB_LEFT_BUTTON, ui::EMB_RIGHT_BUTTON, ui::EMB_MIDDLE_BUTTON, ui::EMB_BUTTON_4, ui::EMB_BUTTON_5
+    };
 
-    ImGui::TableSetColumnIndex(2);
-    if (ImGui::Button("Confirm Add", SCameraAppBindingEditorUiDefaults::ActionButtonSize))
+    bool changed = false;
+    ImGui::PushID(id);
+    ImGui::SetNextItemWidth(-FLT_MIN);
+    if (ImGui::BeginCombo("##gate", getGateLabel(gate).c_str()))
     {
-        anyMapUpdated |= true;
-        if (activeBindingDomain == IGimbalBindingLayout::Keyboard)
-            layout->updateKeyboardMapping([&](auto& keys) { keys[newKey] = selectedEventType; });
-        else
-            layout->updateMouseMapping([&](auto& mouse) { mouse[newMouseCode] = selectedEventType; });
-        addMode = false;
+        if (ImGui::Selectable("always", !gate.has_value()))
+        {
+            gate = std::nullopt;
+            changed = true;
+        }
+        for (const auto button : Buttons)
+        {
+            const bool selected = gate.has_value() && gate.value() == button;
+            if (ImGui::Selectable(std::string(mouseButtonToString(button)).c_str(), selected))
+            {
+                gate = button;
+                changed = true;
+            }
+        }
+        ImGui::EndCombo();
+    }
+    ImGui::PopID();
+    return changed;
+}
+
+bool drawScalar(const char* id, double& value)
+{
+    float asFloat = static_cast<float>(value);
+    ImGui::PushID(id);
+    ImGui::SetNextItemWidth(-FLT_MIN);
+    const bool changed = ImGui::InputFloat("##value", &asFloat, 0.f, 0.f, "%.4f", ImGuiInputTextFlags_EnterReturnsTrue);
+    ImGui::PopID();
+    if (changed)
+        value = static_cast<double>(asFloat);
+    return changed;
+}
+
+bool drawGain(const char* id, hlsl::float64_t2& gain)
+{
+    float values[2] = { static_cast<float>(gain.x), static_cast<float>(gain.y) };
+    ImGui::PushID(id);
+    ImGui::SetNextItemWidth(-FLT_MIN);
+    const bool changed = ImGui::InputFloat2("##gain", values, "%.4f", ImGuiInputTextFlags_EnterReturnsTrue);
+    ImGui::PopID();
+    if (changed)
+        gain = hlsl::float64_t2(static_cast<double>(values[0]), static_cast<double>(values[1]));
+    return changed;
+}
+
+bool drawBindingRows(SCameraMouseKeyboardBinding& binding, const uint32_t acceptedAxes)
+{
+    constexpr auto TableFlags = ImGuiTableFlags_Borders | ImGuiTableFlags_Resizable | ImGuiTableFlags_RowBg |
+        ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_ScrollY;
+
+    bool changed = false;
+    if (!ImGui::BeginTable("##camera_binding", 7, TableFlags, ImVec2(0.f, 0.f)))
+        return false;
+
+    ImGui::TableSetupColumn("Axis");
+    ImGui::TableSetupColumn("+ Key");
+    ImGui::TableSetupColumn("- Key");
+    ImGui::TableSetupColumn("Rate /s");
+    ImGui::TableSetupColumn("Mouse x,y");
+    ImGui::TableSetupColumn("Scroll v,h");
+    ImGui::TableSetupColumn("Gate");
+    ImGui::TableHeadersRow();
+
+    for (uint32_t i = 0u; i < CameraControlAxisCount; ++i)
+    {
+        const auto axis = cameraControlAxisFromIndex(i);
+        if ((acceptedAxes & axis) == 0u)
+            continue;
+
+        auto& slot = binding.axes[i];
+        ImGui::PushID(static_cast<int>(i));
+        ImGui::TableNextRow();
+
+        ImGui::TableSetColumnIndex(0);
+        ImGui::TextUnformatted(std::string(cameraControlAxisName(axis)).c_str());
+
+        ImGui::TableSetColumnIndex(1);
+        changed |= drawKeyPicker("positive", slot.positiveKey);
+
+        ImGui::TableSetColumnIndex(2);
+        changed |= drawKeyPicker("negative", slot.negativeKey);
+
+        ImGui::TableSetColumnIndex(3);
+        changed |= drawScalar("rate", slot.keyRate);
+
+        ImGui::TableSetColumnIndex(4);
+        changed |= drawGain("move", slot.mouseMovementGain);
+
+        ImGui::TableSetColumnIndex(5);
+        changed |= drawGain("scroll", slot.mouseScrollGain);
+
+        ImGui::TableSetColumnIndex(6);
+        changed |= drawGatePicker("gate", slot.mouseMovementGate);
+
+        ImGui::PopID();
     }
 
     ImGui::EndTable();
-
-    return anyMapUpdated;
+    return changed;
 }
 
-bool displayKeyMappingsAndVirtualStatesInline(IGimbalBindingLayout* layout, bool spawnWindow)
+}
+
+bool displayCameraBindingTableInline(SCameraMouseKeyboardBinding& binding, const uint32_t acceptedAxes, const bool spawnWindow)
 {
-    bool anyMapUpdated = false;
+    if (!spawnWindow)
+        return drawBindingRows(binding, acceptedAxes);
 
-    if (!layout) return anyMapUpdated;
-
-    struct MappingState
-    {
-        bool addMode = false;
-        CVirtualGimbalEvent::VirtualEventType selectedEventType = CVirtualGimbalEvent::VirtualEventType::MoveForward;
-        ui::E_KEY_CODE newKey = ui::E_KEY_CODE::EKC_A;
-        ext::cameras::E_MOUSE_CODE newMouseCode = ext::cameras::EMC_LEFT_BUTTON;
-        IGimbalBindingLayout::BindingDomain activeBindingDomain = IGimbalBindingLayout::Keyboard;
-    };
-
-    static std::unordered_map<IGimbalBindingLayout*, MappingState> cameraStates;
-    auto& state = cameraStates[layout];
-
-    const auto& keyboardMappings = layout->getKeyboardVirtualEventMap();
-    const auto& mouseMappings = layout->getMouseVirtualEventMap();
-
-    if (spawnWindow)
-    {
-        ImGui::SetNextWindowSize(SCameraAppBindingEditorUiDefaults::WindowInitialSize, ImGuiCond_FirstUseEver);
-        ImGui::Begin("Binding Layouts & Virtual States", nullptr, ImGuiWindowFlags_NoResize | ImGuiWindowFlags_AlwaysVerticalScrollbar);
-    }
-
-    if (ImGui::BeginTabBar("BindingsTabBar"))
-    {
-        if (ImGui::BeginTabItem("Keyboard"))
-        {
-            state.activeBindingDomain = IGimbalBindingLayout::Keyboard;
-            ImGui::Separator();
-
-            if (ImGui::Button("Add Key", SCameraAppBindingEditorUiDefaults::ActionButtonSize))
-                state.addMode = !state.addMode;
-
-            ImGui::Separator();
-
-            ImGui::BeginTable("KeyboardMappingsTable", 5, ImGuiTableFlags_Borders | ImGuiTableFlags_Resizable | ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingStretchSame);
-            ImGui::TableSetupColumn("Virtual Event", ImGuiTableColumnFlags_WidthStretch, 0.2f);
-            ImGui::TableSetupColumn("Key(s)", ImGuiTableColumnFlags_WidthStretch, 0.2f);
-            ImGui::TableSetupColumn("Active Status", ImGuiTableColumnFlags_WidthStretch, 0.2f);
-            ImGui::TableSetupColumn("Magnitude", ImGuiTableColumnFlags_WidthStretch, 0.2f);
-            ImGui::TableSetupColumn("Actions", ImGuiTableColumnFlags_WidthStretch, 0.2f);
-            ImGui::TableHeadersRow();
-
-            for (const auto& [keyboardCode, hash] : keyboardMappings)
-            {
-                ImGui::TableNextRow();
-                const char* eventName = CVirtualGimbalEvent::virtualEventToString(hash.event.type).data();
-                ImGui::TableSetColumnIndex(0);
-                ImGui::AlignTextToFramePadding();
-                ImGui::TextWrapped("%s", eventName);
-
-                ImGui::TableSetColumnIndex(1);
-                const auto keyString = buildKeyCodeLabel(keyboardCode);
-                ImGui::AlignTextToFramePadding();
-                ImGui::TextWrapped("%s", keyString.c_str());
-
-                ImGui::TableSetColumnIndex(2);
-                bool isActive = (hash.event.magnitude > 0);
-                const ImVec4 statusColor = getBindingActiveStatusColor(isActive);
-                ImGui::TextColored(statusColor, "%s", isActive ? "Active" : "Inactive");
-
-                ImGui::TableSetColumnIndex(3);
-                ImGui::Text("%.2f", hash.event.magnitude);
-
-                ImGui::TableSetColumnIndex(4);
-                if (ImGui::Button(("Delete##deleteKey" + std::to_string(static_cast<int>(keyboardCode))).c_str()))
-                {
-                    anyMapUpdated |= true;
-                    layout->updateKeyboardMapping([keyboardCode](auto& keys) { keys.erase(keyboardCode); });
-                    break;
-                }
-            }
-            ImGui::EndTable();
-
-            if (state.addMode)
-            {
-                ImGui::Separator();
-                anyMapUpdated |= handleAddMapping("AddKeyboardMappingTable", layout, state.activeBindingDomain, state.selectedEventType, state.newKey, state.newMouseCode, state.addMode);
-            }
-
-            ImGui::EndTabItem();
-        }
-
-        if (ImGui::BeginTabItem("Mouse"))
-        {
-            state.activeBindingDomain = IGimbalBindingLayout::Mouse;
-            ImGui::Separator();
-
-            if (ImGui::Button("Add Key", SCameraAppBindingEditorUiDefaults::ActionButtonSize))
-                state.addMode = !state.addMode;
-
-            ImGui::Separator();
-
-            ImGui::BeginTable("MouseMappingsTable", 5, ImGuiTableFlags_Borders | ImGuiTableFlags_Resizable | ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingStretchSame);
-            ImGui::TableSetupColumn("Virtual Event", ImGuiTableColumnFlags_WidthStretch, 0.2f);
-            ImGui::TableSetupColumn("Mouse Button(s)", ImGuiTableColumnFlags_WidthStretch, 0.2f);
-            ImGui::TableSetupColumn("Active Status", ImGuiTableColumnFlags_WidthStretch, 0.2f);
-            ImGui::TableSetupColumn("Magnitude", ImGuiTableColumnFlags_WidthStretch, 0.2f);
-            ImGui::TableSetupColumn("Actions", ImGuiTableColumnFlags_WidthStretch, 0.2f);
-            ImGui::TableHeadersRow();
-
-            for (const auto& [mouseCode, hash] : mouseMappings)
-            {
-                ImGui::TableNextRow();
-                const char* eventName = CVirtualGimbalEvent::virtualEventToString(hash.event.type).data();
-                ImGui::TableSetColumnIndex(0);
-                ImGui::AlignTextToFramePadding();
-                ImGui::TextWrapped("%s", eventName);
-
-                ImGui::TableSetColumnIndex(1);
-                const char* mouseButtonName = ext::cameras::mouseCodeToString(mouseCode).data();
-                ImGui::AlignTextToFramePadding();
-                ImGui::TextWrapped("%s", mouseButtonName);
-
-                ImGui::TableSetColumnIndex(2);
-                bool isActive = (hash.event.magnitude > 0);
-                const ImVec4 statusColor = getBindingActiveStatusColor(isActive);
-                ImGui::TextColored(statusColor, "%s", isActive ? "Active" : "Inactive");
-
-                ImGui::TableSetColumnIndex(3);
-                ImGui::Text("%.2f", hash.event.magnitude);
-
-                ImGui::TableSetColumnIndex(4);
-                if (ImGui::Button(("Delete##deleteMouse" + std::to_string(static_cast<int>(mouseCode))).c_str()))
-                {
-                    anyMapUpdated |= true;
-                    layout->updateMouseMapping([mouseCode](auto& mouse) { mouse.erase(mouseCode); });
-                    break;
-                }
-            }
-            ImGui::EndTable();
-
-            if (state.addMode)
-            {
-                ImGui::Separator();
-                handleAddMapping("AddMouseMappingTable", layout, state.activeBindingDomain, state.selectedEventType, state.newKey, state.newMouseCode, state.addMode);
-            }
-            ImGui::EndTabItem();
-        }
-
-        ImGui::EndTabBar();
-    }
-
-    if (spawnWindow)
-        ImGui::End();
-
-    return anyMapUpdated;
+    bool changed = false;
+    if (ImGui::Begin("Camera Controls", nullptr, ImGuiWindowFlags_NoSavedSettings))
+        changed = drawBindingRows(binding, acceptedAxes);
+    ImGui::End();
+    return changed;
 }
-

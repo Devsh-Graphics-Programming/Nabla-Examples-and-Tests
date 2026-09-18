@@ -498,9 +498,11 @@
 
 			ICamera::PathState desiredPathState = {};
 			ICamera::PathState projectedPathState = {};
-			const auto pathDelta = nbl::ext::cameras::CCameraPathUtilities::makePathDeltaFromVirtualPathMotion(
-				hlsl::float64_t3(0.8, 0.35, 1.1),
-				hlsl::float64_t3(0.0, 0.0, 0.45));
+			nbl::ext::cameras::SCameraPathDelta pathDelta = {};
+			pathDelta.u = 0.8;
+			pathDelta.v = 0.35;
+			pathDelta.s = 1.1;
+			pathDelta.roll = 0.45;
 			if (!nbl::ext::cameras::CCameraPathUtilities::tryApplyPathStateDelta(
 					baselinePathState,
 					pathDelta,
@@ -1037,18 +1039,15 @@
 				return false;
 			}
 
-			const hlsl::float64_t3 directTranslationMagnitude(1.5, 0.75, 2.0);
-			const double directRollMagnitude = 0.5;
-			const std::array<CVirtualGimbalEvent, 4u> directPathEvents = {{
-				{ CVirtualGimbalEvent::MoveRight, directTranslationMagnitude.x },
-				{ CVirtualGimbalEvent::MoveUp, directTranslationMagnitude.y },
-				{ CVirtualGimbalEvent::MoveForward, directTranslationMagnitude.z },
-				{ CVirtualGimbalEvent::RollRight, directRollMagnitude }
-			}};
+			SCameraControls directPathControls = {};
+			directPathControls.path.u = 1.5;
+			directPathControls.path.v = 0.75;
+			directPathControls.path.s = 2.0;
+			directPathControls.path.roll = 0.5;
 
-			if (!state.pathCamera->manipulate({ directPathEvents.data(), directPathEvents.size() }))
+			if (!state.pathCamera->manipulate(directPathControls))
 			{
-				outError = "Path manipulation smoke failed to apply direct path virtual events.";
+				outError = "Path manipulation smoke failed to apply direct path controls.";
 				return false;
 			}
 
@@ -1061,9 +1060,11 @@
 
 			ICamera::PathStateLimits activePathLimits = nbl::ext::cameras::CCameraPathUtilities::makeDefaultPathLimits();
 			state.pathCamera->tryGetPathStateLimits(activePathLimits);
-			const auto expectedPathDelta = nbl::ext::cameras::CCameraPathUtilities::makePathDeltaFromVirtualPathMotion(
-				state.pathCamera->scaleVirtualTranslation(directTranslationMagnitude),
-				state.pathCamera->scaleVirtualRotation(hlsl::float64_t3(0.0, 0.0, directRollMagnitude)));
+			nbl::ext::cameras::SCameraPathDelta expectedPathDelta = {};
+			expectedPathDelta.s = directPathControls.path.s;
+			expectedPathDelta.u = directPathControls.path.u;
+			expectedPathDelta.v = directPathControls.path.v;
+			expectedPathDelta.roll = directPathControls.path.roll;
 			ICamera::PathState expectedPathState = {};
 			if (!nbl::ext::cameras::CCameraPathUtilities::tryApplyPathStateDelta(
 					baselinePathState,
@@ -1096,31 +1097,22 @@
 				return false;
 			}
 
-			std::vector<CVirtualGimbalEvent> replayEvents;
-			if (!state.goalSolver.buildEvents(state.pathCamera, movedCapture.goal, replayEvents) || replayEvents.empty())
+			SCameraControls replayControls = {};
+			if (!state.goalSolver.buildControls(state.pathCamera, movedCapture.goal, replayControls) || replayControls.nonZeroAxes() == 0u)
 			{
-				outError = "Path manipulation smoke failed to build replay virtual events for the moved path goal.";
+				outError = "Path manipulation smoke failed to build replay controls for the moved path goal.";
 				return false;
 			}
 
-			bool hasRollReplay = false;
-			for (const auto& event : replayEvents)
+			if (replayControls.path.roll == 0.0)
 			{
-				if (event.type == CVirtualGimbalEvent::RollLeft || event.type == CVirtualGimbalEvent::RollRight)
-				{
-					hasRollReplay = true;
-					break;
-				}
-			}
-			if (!hasRollReplay)
-			{
-				outError = "Path manipulation smoke dropped the roll replay event for the moved path goal.";
+				outError = "Path manipulation smoke dropped the roll replay axis for the moved path goal.";
 				return false;
 			}
 
-			if (!state.pathCamera->manipulate({ replayEvents.data(), replayEvents.size() }))
+			if (!state.pathCamera->manipulate(replayControls))
 			{
-				outError = "Path manipulation smoke failed to replay path virtual events onto the baseline camera.";
+				outError = "Path manipulation smoke failed to replay path controls onto the baseline camera.";
 				return false;
 			}
 
@@ -1209,9 +1201,9 @@
 				return false;
 			}
 
-			if (!customPathCamera->manipulate({ directPathEvents.data(), directPathEvents.size() }))
+			if (!customPathCamera->manipulate(directPathControls))
 			{
-				outError = "Path manipulation smoke failed to apply direct virtual events on the custom-limits path camera.";
+				outError = "Path manipulation smoke failed to apply direct controls on the custom-limits path camera.";
 				return false;
 			}
 
@@ -1225,9 +1217,7 @@
 			ICamera::PathState expectedCustomPathState = {};
 			if (!nbl::ext::cameras::CCameraPathUtilities::tryApplyPathStateDelta(
 					customBaselinePathState,
-					nbl::ext::cameras::CCameraPathUtilities::makePathDeltaFromVirtualPathMotion(
-						customPathCamera->scaleVirtualTranslation(directTranslationMagnitude),
-						customPathCamera->scaleVirtualRotation(hlsl::float64_t3(0.0, 0.0, directRollMagnitude))),
+					expectedPathDelta,
 					resolvedPathLimits,
 					expectedCustomPathState) ||
 				!nbl::ext::cameras::CCameraPathUtilities::pathStatesNearlyEqual(
@@ -1252,16 +1242,16 @@
 				return false;
 			}
 
-			std::vector<CVirtualGimbalEvent> customReplayEvents;
-			if (!state.goalSolver.buildEvents(customPathCamera.get(), customMovedCapture.goal, customReplayEvents) || customReplayEvents.empty())
+			SCameraControls customReplayControls = {};
+			if (!state.goalSolver.buildControls(customPathCamera.get(), customMovedCapture.goal, customReplayControls) || customReplayControls.nonZeroAxes() == 0u)
 			{
-				outError = "Path manipulation smoke failed to build replay events for the custom-limits path goal.";
+				outError = "Path manipulation smoke failed to build replay controls for the custom-limits path goal.";
 				return false;
 			}
 
-			if (!customPathCamera->manipulate({ customReplayEvents.data(), customReplayEvents.size() }))
+			if (!customPathCamera->manipulate(customReplayControls))
 			{
-				outError = "Path manipulation smoke failed to replay events on the custom-limits path camera.";
+				outError = "Path manipulation smoke failed to replay controls on the custom-limits path camera.";
 				return false;
 			}
 
@@ -1279,256 +1269,89 @@
 			}
 		}
 
-		{
-			std::vector<CVirtualGimbalEvent> scaledEvents(3u);
-			scaledEvents[0].type = CVirtualGimbalEvent::MoveForward;
-			scaledEvents[0].magnitude = 2.0;
-			scaledEvents[1].type = CVirtualGimbalEvent::PanRight;
-			scaledEvents[1].magnitude = 3.0;
-			scaledEvents[2].type = CVirtualGimbalEvent::ScaleXInc;
-			scaledEvents[2].magnitude = 4.0;
-			nbl::ext::cameras::CCameraManipulationUtilities::scaleVirtualEvents(scaledEvents, static_cast<uint32_t>(scaledEvents.size()), 0.5f, 2.0f);
-			if (hlsl::abs(scaledEvents[0].magnitude - 1.0) > SCameraSmokeUtilityThresholds::VirtualEventScale ||
-				hlsl::abs(scaledEvents[1].magnitude - 6.0) > SCameraSmokeUtilityThresholds::VirtualEventScale ||
-				hlsl::abs(scaledEvents[2].magnitude - 4.0) > SCameraSmokeUtilityThresholds::VirtualEventScale)
-			{
-				outError = "Camera manipulation utilities smoke failed for virtual-event scaling.";
-				return false;
-			}
-		}
-
-		{
-			const auto findEventMagnitude = [](const auto& events, const CVirtualGimbalEvent::VirtualEventType type) -> std::optional<double>
-			{
-				for (const auto& event : events)
-				{
-					if (event.type == type)
-						return event.magnitude;
-				}
-				return std::nullopt;
-			};
-
-			const auto sumEventMagnitude = [](const auto& events, const CVirtualGimbalEvent::VirtualEventType type) -> double
-			{
-				double sum = 0.0;
-				for (const auto& event : events)
-				{
-					if (event.type == type)
-						sum += event.magnitude;
-				}
-				return sum;
-			};
-
-			const auto frameStepSeconds = std::chrono::duration<double>(SCameraSmokeInputDefaults::EventStep).count();
-			const auto expectedKeyboardMagnitude =
-				frameStepSeconds * nbl::ext::cameras::CCameraInputBindingUtilities::SInputMagnitudeDefaults::KeyboardHeldUnitsPerSecond;
-
-			nbl::ext::cameras::CGimbalInputBinder inputBinder;
-			nbl::ext::cameras::CCameraInputBindingUtilities::applyDefaultCameraInputBindingPreset(
-				inputBinder,
-				ICamera::CameraKind::FPS,
-				CVirtualGimbalEvent::All);
-
-			const auto keyboardEvents = collectKeyboardVirtualEvents(inputBinder, nbl::ui::E_KEY_CODE::EKC_W);
-			const auto keyboardMagnitude = findEventMagnitude(keyboardEvents, CVirtualGimbalEvent::MoveForward);
-			if (!keyboardMagnitude.has_value() ||
-				hlsl::abs(*keyboardMagnitude - expectedKeyboardMagnitude) > SCameraSmokeUtilityThresholds::VirtualEventScale)
-			{
-				outError = "Input binding smoke produced the wrong held-key magnitude for default FPS WASD.";
-				return false;
-			}
-
-			inputBinder.clearBindingLayout();
-			nbl::ext::cameras::CCameraInputBindingUtilities::applyDefaultCameraInputBindingPreset(
-				inputBinder,
-				ICamera::CameraKind::FPS,
-				CVirtualGimbalEvent::All);
-
-			const auto moveEvent = buildMovementSmokeMouseEvent();
-			const std::array<SMouseEvent, 1u> moveEvents = { moveEvent };
-			const auto mouseEvents = collectMouseVirtualEvents(inputBinder, { moveEvents.data(), moveEvents.size() });
-			const auto panMagnitude = findEventMagnitude(mouseEvents, CVirtualGimbalEvent::PanRight);
-			const auto tiltMagnitude = findEventMagnitude(mouseEvents, CVirtualGimbalEvent::TiltDown);
-			if (!panMagnitude.has_value() ||
-				!tiltMagnitude.has_value() ||
-				hlsl::abs(*panMagnitude - static_cast<double>(SCameraSmokeInputDefaults::RelativeMouseMove)) > SCameraSmokeUtilityThresholds::VirtualEventScale ||
-				hlsl::abs(*tiltMagnitude - hlsl::abs(static_cast<double>(SCameraSmokeInputDefaults::RelativeMouseMoveY))) > SCameraSmokeUtilityThresholds::VirtualEventScale)
-			{
-				outError = "Input binding smoke produced the wrong relative-mouse magnitudes for default FPS look.";
-				return false;
-			}
-
-			inputBinder.clearBindingLayout();
-			nbl::ext::cameras::CCameraInputBindingUtilities::applyDefaultCameraInputBindingPreset(
-				inputBinder,
-				ICamera::CameraKind::Orbit,
-				CVirtualGimbalEvent::All);
-
-			const auto scrollEvent = buildScrollSmokeMouseEvent();
-			const std::array<SMouseEvent, 1u> scrollEvents = { scrollEvent };
-			const auto mouseScrollEvents = collectMouseVirtualEvents(inputBinder, { scrollEvents.data(), scrollEvents.size() });
-			const auto scrollForwardMagnitude = sumEventMagnitude(mouseScrollEvents, CVirtualGimbalEvent::MoveForward);
-			if (hlsl::abs(scrollForwardMagnitude - static_cast<double>(SCameraSmokeInputDefaults::VerticalScroll + SCameraSmokeInputDefaults::HorizontalScroll)) > SCameraSmokeUtilityThresholds::VirtualEventScale)
-			{
-				outError = "Input binding smoke produced the wrong scroll magnitude for default orbit zoom.";
-				return false;
-			}
-
-			nbl::ext::cameras::CGimbalBindingLayoutStorage customLayout;
-			customLayout.updateKeyboardMapping([&](auto& map)
-				{
-					map[nbl::ui::E_KEY_CODE::EKC_W] = nbl::ext::cameras::IGimbalBindingLayout::CHashInfo(CVirtualGimbalEvent::MoveForward, 7.5);
-				});
-			inputBinder.copyBindingLayoutFrom(customLayout);
-
-			const auto customKeyboardEvents = collectKeyboardVirtualEvents(inputBinder, nbl::ui::E_KEY_CODE::EKC_W);
-			const auto customKeyboardMagnitude = findEventMagnitude(customKeyboardEvents, CVirtualGimbalEvent::MoveForward);
-			const auto expectedCustomKeyboardMagnitude = frameStepSeconds * 7.5;
-			if (!customKeyboardMagnitude.has_value() ||
-				hlsl::abs(*customKeyboardMagnitude - expectedCustomKeyboardMagnitude) > SCameraSmokeUtilityThresholds::VirtualEventScale)
-			{
-				outError = "Input binding smoke failed to preserve binding-scale metadata through layout copies.";
-				return false;
-			}
-		}
-
 		if (state.fpsCamera)
 		{
-			const auto baselinePreset = CCameraPresetFlowUtilities::capturePreset(state.goalSolver, state.fpsCamera, "fps-motion-scale-baseline");
-			if (!restorePresetStrict(state.goalSolver, state.fpsCamera, baselinePreset, "FPS motion-scale smoke failed to restore baseline before test", outError))
+			const auto baselinePreset = CCameraPresetFlowUtilities::capturePreset(state.goalSolver, state.fpsCamera, "fps-translation-baseline");
+			if (!restorePresetStrict(state.goalSolver, state.fpsCamera, baselinePreset, "FPS translation smoke failed to restore baseline before test", outError))
 				return false;
 
-			nbl::ext::cameras::CGimbalInputBinder inputBinder;
-			nbl::ext::cameras::CCameraInputBindingUtilities::applyDefaultCameraInputBindingPreset(
-				inputBinder,
-				ICamera::CameraKind::FPS,
-				CVirtualGimbalEvent::All);
-
-			const auto keyboardEvents = collectKeyboardVirtualEvents(inputBinder, nbl::ui::E_KEY_CODE::EKC_W);
-			const auto keyboardMagnitude = std::find_if(
-				keyboardEvents.begin(),
-				keyboardEvents.end(),
-				[](const CVirtualGimbalEvent& event) { return event.type == CVirtualGimbalEvent::MoveForward; });
-			if (keyboardMagnitude == keyboardEvents.end())
-			{
-				outError = "FPS motion-scale smoke failed to collect MoveForward event.";
-				return false;
-			}
+			SCameraControls forwardControls = {};
+			forwardControls.translate.z = 2.0;
 
 			const auto baselinePosition = state.fpsCamera->getGimbal().getPosition();
 			const auto baselineForward = state.fpsCamera->getGimbal().getForward();
-			const auto expectedPositionDelta =
-				baselineForward * state.fpsCamera->scaleVirtualTranslation(static_cast<double>(keyboardMagnitude->magnitude));
-			if (!state.fpsCamera->manipulate({ keyboardEvents.data(), keyboardEvents.size() }))
+			const auto expectedPositionDelta = baselineForward * forwardControls.translate.z;
+			if (!state.fpsCamera->manipulate(forwardControls))
 			{
-				outError = "FPS motion-scale smoke failed to apply collected keyboard events.";
+				outError = "FPS translation smoke failed to apply the forward control.";
 				return false;
 			}
 
 			const auto actualPositionDelta = state.fpsCamera->getGimbal().getPosition() - baselinePosition;
 			if (!CCameraMathUtilities::nearlyEqualVec3(actualPositionDelta, expectedPositionDelta, SCameraSmokeUtilityThresholds::PositionWriteback))
 			{
-				outError = "FPS motion-scale smoke ignored camera-local translation scaling.";
+				outError = "FPS translation smoke did not move one world unit per unit of camera-local translate.";
 				return false;
 			}
 
-			if (!restorePresetStrict(state.goalSolver, state.fpsCamera, baselinePreset, "FPS motion-scale smoke failed to restore baseline after test", outError))
+			if (!restorePresetStrict(state.goalSolver, state.fpsCamera, baselinePreset, "FPS translation smoke failed to restore baseline after test", outError))
 				return false;
 		}
 
 		if (state.freeCamera)
 		{
-			const auto freeBaselinePreset = CCameraPresetFlowUtilities::capturePreset(state.goalSolver, state.freeCamera, "free-motion-scale-baseline");
-			if (!restorePresetStrict(state.goalSolver, state.freeCamera, freeBaselinePreset, "Free motion-scale smoke failed to restore baseline before test", outError))
+			const auto freeBaselinePreset = CCameraPresetFlowUtilities::capturePreset(state.goalSolver, state.freeCamera, "free-manipulation-baseline");
+			if (!restorePresetStrict(state.goalSolver, state.freeCamera, freeBaselinePreset, "Free manipulation smoke failed to restore baseline before test", outError))
 				return false;
 
 			{
-				std::array<CVirtualGimbalEvent, 1u> translationEvents = {{
-					{ CVirtualGimbalEvent::MoveForward, 2.0 }
-				}};
+				SCameraControls translationControls = {};
+				translationControls.translate.z = 2.0;
+
 				const auto baselinePosition = state.freeCamera->getGimbal().getPosition();
 				const auto baselineForward = state.freeCamera->getGimbal().getForward();
-				const auto expectedPositionDelta =
-					baselineForward * state.freeCamera->scaleVirtualTranslation(translationEvents[0].magnitude);
-				if (!state.freeCamera->manipulate({ translationEvents.data(), translationEvents.size() }))
+				const auto expectedPositionDelta = baselineForward * translationControls.translate.z;
+				if (!state.freeCamera->manipulate(translationControls))
 				{
-					outError = "Free motion-scale smoke failed to apply translation event.";
+					outError = "Free translation smoke failed to apply the forward control.";
 					return false;
 				}
 
 				const auto actualPositionDelta = state.freeCamera->getGimbal().getPosition() - baselinePosition;
 				if (!CCameraMathUtilities::nearlyEqualVec3(actualPositionDelta, expectedPositionDelta, SCameraSmokeUtilityThresholds::PositionWriteback))
 				{
-					outError = "Free motion-scale smoke ignored camera-local translation scaling.";
+					outError = "Free translation smoke did not move one world unit per unit of camera-local translate.";
 					return false;
 				}
 
-				if (!restorePresetStrict(state.goalSolver, state.freeCamera, freeBaselinePreset, "Free motion-scale smoke failed to restore baseline after translation test", outError))
+				if (!restorePresetStrict(state.goalSolver, state.freeCamera, freeBaselinePreset, "Free translation smoke failed to restore baseline after translation test", outError))
 					return false;
 			}
 
 			{
-				std::array<CVirtualGimbalEvent, 1u> rotationEvents = {{
-					{ CVirtualGimbalEvent::PanRight, 2.0 }
-				}};
+				SCameraControls rotationControls = {};
+				rotationControls.rotate.y = 2.0;
+
 				const auto baselineForward = state.freeCamera->getGimbal().getForward();
 				const auto baselineUp = state.freeCamera->getGimbal().getUp();
 				const auto expectedForward = hlsl::normalize(
-					hlsl::math::quaternion<hlsl::float64_t>::createFromAxisAngle(hlsl::normalize(baselineUp), state.freeCamera->scaleVirtualRotation(rotationEvents[0].magnitude))
+					hlsl::math::quaternion<hlsl::float64_t>::createFromAxisAngle(hlsl::normalize(baselineUp), rotationControls.rotate.y)
 				).transformVector(baselineForward, true);
-				if (!state.freeCamera->manipulate({ rotationEvents.data(), rotationEvents.size() }))
+				if (!state.freeCamera->manipulate(rotationControls))
 				{
-					outError = "Free motion-scale smoke failed to apply rotation event.";
+					outError = "Free rotation smoke failed to apply the yaw control.";
 					return false;
 				}
 
 				const auto actualForward = state.freeCamera->getGimbal().getForward();
 				if (!CCameraMathUtilities::nearlyEqualVec3(actualForward, expectedForward, SCameraSmokeUtilityThresholds::PositionWriteback))
 				{
-					outError = "Free motion-scale smoke ignored camera-local rotation scaling.";
+					outError = "Free rotation smoke did not yaw one radian per unit of rotate.y about the rig's own up axis.";
 					return false;
 				}
 
-				if (!restorePresetStrict(state.goalSolver, state.freeCamera, freeBaselinePreset, "Free motion-scale smoke failed to restore baseline after rotation test", outError))
+				if (!restorePresetStrict(state.goalSolver, state.freeCamera, freeBaselinePreset, "Free rotation smoke failed to restore baseline after rotation test", outError))
 					return false;
-			}
-
-			CameraPreset orientedPreset = state.initialPresets.free.value();
-			orientedPreset.goal.orientation = CCameraMathUtilities::makeQuaternionFromEulerDegreesYXZ(SCameraSmokeManipulationDefaults::FreeOrientationYawDeg);
-			const auto orientResult = CCameraPresetFlowUtilities::applyPresetDetailed(state.goalSolver, state.freeCamera, orientedPreset);
-			if (!orientResult.succeeded() || !CCameraSmokeRegressionUtilities::comparePresetToCameraStateWithStrictThresholds(state.goalSolver, state.freeCamera, orientedPreset))
-			{
-				outError = "Camera manipulation utilities smoke failed to orient Free camera before translation remap.";
-				return false;
-			}
-
-			std::vector<CVirtualGimbalEvent> worldTranslationEvents(3u);
-			worldTranslationEvents[0].type = CVirtualGimbalEvent::MoveRight;
-			worldTranslationEvents[0].magnitude = SCameraSmokeManipulationDefaults::WorldTranslationDelta.x;
-			worldTranslationEvents[1].type = CVirtualGimbalEvent::MoveUp;
-			worldTranslationEvents[1].magnitude = SCameraSmokeManipulationDefaults::WorldTranslationDelta.y;
-			worldTranslationEvents[2].type = CVirtualGimbalEvent::MoveForward;
-			worldTranslationEvents[2].magnitude = SCameraSmokeManipulationDefaults::WorldTranslationDelta.z;
-			uint32_t remappedCount = static_cast<uint32_t>(worldTranslationEvents.size());
-			nbl::ext::cameras::CCameraManipulationUtilities::remapTranslationEventsFromWorldToCameraLocal(state.freeCamera, worldTranslationEvents, remappedCount);
-			if (remappedCount == 0u)
-			{
-				outError = "Camera manipulation utilities smoke produced empty translation remap.";
-				return false;
-			}
-
-			if (!state.freeCamera->manipulate({ worldTranslationEvents.data(), remappedCount }))
-			{
-				outError = "Camera manipulation utilities smoke failed to apply remapped translation.";
-				return false;
-			}
-
-			const auto remappedPosition = state.freeCamera->getGimbal().getPosition();
-			const auto positionDelta = remappedPosition - orientedPreset.goal.position;
-			if (!CCameraMathUtilities::nearlyEqualVec3(positionDelta, SCameraSmokeManipulationDefaults::WorldTranslationDelta, SCameraSmokeUtilityThresholds::PositionWriteback))
-			{
-				outError = "Camera manipulation utilities smoke changed world-space translation semantics.";
-				return false;
 			}
 
 			CameraPreset pitchPreset = state.initialPresets.free.value();

@@ -5,6 +5,7 @@
 #include <string>
 
 #include "app/AppViewportBindingUtilities.hpp"
+#include "keysmapping.hpp"
 
 namespace nbl::ui
 {
@@ -254,41 +255,14 @@ inline void drawCursorBehaviourControls(bool& captureCursorInMoveMode, bool& res
     ImGui::TreePop();
 }
 
-inline void drawBoundCameraMotionControls(ICamera& camera)
-{
-    float moveSpeed = camera.getMoveSpeedScale();
-    float rotationSpeed = camera.getRotationSpeedScale();
-    ImGui::SliderFloat(
-        "Move speed factor",
-        &moveSpeed,
-        SCameraAppControlPanelRangeDefaults::MotionScaleMin,
-        SCameraAppControlPanelRangeDefaults::MotionScaleMax,
-        "%.4f",
-        ImGuiSliderFlags_Logarithmic);
-    CCameraControlPanelUiUtilities::drawHoverHint("Scale translation speed for this camera");
-    if (camera.getAllowedVirtualEvents() & CVirtualGimbalEvent::Rotate)
-    {
-        ImGui::SliderFloat(
-            "Rotate speed factor",
-            &rotationSpeed,
-            SCameraAppControlPanelRangeDefaults::MotionScaleMin,
-            SCameraAppControlPanelRangeDefaults::MotionScaleMax,
-            "%.4f",
-            ImGuiSliderFlags_Logarithmic);
-    }
-    CCameraControlPanelUiUtilities::drawHoverHint("Scale rotation speed for this camera");
-    camera.setMotionScales(moveSpeed, rotationSpeed);
-}
-
-template<typename AddMatrixTable, typename SyncBinding, typename SyncBindingToProjection>
+template<typename AddMatrixTable, typename RefreshBinding>
 inline void drawBoundCameraSection(
     SActiveProjectionTabContext& runtime,
     const uint32_t planarIx,
+    SCameraMouseKeyboardBinding& inputBinding,
     AddMatrixTable&& addMatrixTableFn,
-    SyncBinding&& syncBinding,
-    SyncBindingToProjection&& syncBindingToProjection)
+    RefreshBinding&& refreshBinding)
 {
-    auto& binding = runtime.requireBinding();
     auto& camera = runtime.requireCamera();
     const auto flags = ImGuiTreeNodeFlags_DefaultOpen;
     if (!ImGui::TreeNodeEx("Bound Camera", flags))
@@ -297,8 +271,6 @@ inline void drawBoundCameraSection(
     ImGui::Text("Type: %s", camera.getIdentifier().data());
     ImGui::Text("Object Ix: %u", planarIx + SCameraAppSceneDefaults::CameraObjectIxOffset);
     ImGui::Separator();
-
-    drawBoundCameraMotionControls(camera);
 
     ICamera::SphericalTargetState sphericalState;
     if (camera.tryGetSphericalTargetState(sphericalState))
@@ -332,11 +304,12 @@ inline void drawBoundCameraSection(
         ImGui::TreePop();
     }
 
-    if (ImGui::TreeNodeEx("Virtual Event Mappings", flags))
+    if (ImGui::TreeNodeEx("Camera Controls", flags))
     {
-        syncBinding(binding);
-        if (displayKeyMappingsAndVirtualStatesInline(&binding.inputBinding))
-            syncBindingToProjection(binding);
+        // the binding follows the active camera's kind, so it is rebuilt before the rows are drawn
+        refreshBinding();
+        CCameraControlPanelUiUtilities::drawHoverHint("Keys, rates and mouse gains for each control this camera accepts");
+        displayCameraBindingTableInline(inputBinding, camera.getAcceptedControls());
         ImGui::TreePop();
     }
 

@@ -28,7 +28,6 @@
 #include "camera/CCameraScriptedCheckRunner.hpp"
 #include "camera/CCameraGoalAnalysis.hpp"
 #include "camera/CCameraGoalSolver.hpp"
-#include "nbl/ext/Cameras/CCameraManipulationUtilities.hpp"
 #include "camera/CCameraPresentationUtilities.hpp"
 #include "nbl/ext/Cameras/CCameraProjectionUtilities.hpp"
 #include "nbl/ext/Cameras/CCameraKindUtilities.hpp"
@@ -42,8 +41,10 @@
 #include "camera/CCameraScriptVisualDebugOverlayUtilities.hpp"
 #include "camera/CCameraViewportOverlayUtilities.hpp"
 #include "camera/CCameraTextUtilities.hpp"
-#include "nbl/ext/Cameras/CCameraInputBindingUtilities.hpp"
-#include "nbl/ext/Cameras/CGimbalInputBinder.hpp"
+#include "nbl/ext/Cameras/SCameraControls.hpp"
+#include "nbl/ext/Cameras/CInputCodeNames.hpp"
+#include "nbl/ext/Cameras/CCameraMouseKeyboardController.hpp"
+#include "nbl/ext/Cameras/CCameraMouseKeyboardPresets.hpp"
 
 #include "nbl/ext/Cameras/CPlanarProjection.hpp"
 // the example's headers
@@ -100,13 +101,17 @@ using nbl::ui::ICursorControl;
 using nbl::ui::IKeyboardEventChannel;
 using nbl::ui::IMouseEventChannel;
 using nbl::ui::EKC_NONE;
-using nbl::ext::cameras::EMC_NONE;
+using nbl::ui::E_KEY_CODE;
+using nbl::ui::E_MOUSE_BUTTON;
+using nbl::ui::EMB_COUNT;
 using nbl::ui::SKeyboardEvent;
 using nbl::ui::SMouseEvent;
 using nbl::ui::IWindow;
 using nbl::ui::IWindowWin32;
 using nbl::ext::cameras::stringToKeyCode;
-using nbl::ext::cameras::stringToMouseCode;
+using nbl::ext::cameras::keyCodeToString;
+using nbl::ext::cameras::stringToMouseButton;
+using nbl::ext::cameras::mouseButtonToString;
 using nbl::video::CSurfaceVulkanWin32;
 using nbl::video::CSmoothResizeSurface;
 using nbl::video::IDescriptorPool;
@@ -162,9 +167,17 @@ using nbl::this_example::CCameraSequenceScriptedBuilderUtilities;
 using nbl::this_example::SCameraConstraintSettings;
 using nbl::ext::cameras::IPlanarProjection;
 using nbl::ext::cameras::CPlanarProjection;
-using nbl::ext::cameras::CVirtualGimbalEvent;
-using nbl::ext::cameras::CGimbalInputBinder;
-using nbl::ext::cameras::IGimbalBindingLayout;
+using nbl::ext::cameras::SCameraControls;
+using nbl::ext::cameras::ECameraControlAxis;
+using nbl::ext::cameras::CameraControlAxisCount;
+using nbl::ext::cameras::cameraControlAxisName;
+using nbl::ext::cameras::cameraControlAxisFromIndex;
+using nbl::ext::cameras::cameraControlAxisIndex;
+using nbl::ext::cameras::stringToCameraControlAxis;
+using nbl::ext::cameras::SMouseKeyboardAxisBinding;
+using nbl::ext::cameras::SCameraMouseKeyboardBinding;
+using nbl::ext::cameras::CCameraMouseKeyboardController;
+using nbl::ext::cameras::CCameraMouseKeyboardPresets;
 using nbl::hlsl::float32_t;
 using nbl::hlsl::float32_t2;
 using nbl::hlsl::float32_t3;
@@ -178,7 +191,6 @@ using nbl::hlsl::float64_t4;
 using nbl::hlsl::float64_t4x4;
 using nbl::hlsl::uint16_t2;
 using nbl::ext::cameras::CCameraMathUtilities;
-using nbl::ext::cameras::CCameraInputBindingUtilities;
 using nbl::ui::CCameraControlPanelUiUtilities;
 using nbl::ui::CCameraScriptVisualDebugOverlayUtilities;
 using nbl::ui::CCameraViewportOverlayUtilities;

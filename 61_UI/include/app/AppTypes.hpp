@@ -44,13 +44,10 @@ struct SWindowControlBinding final
 	bool isOrthographicProjection = false;
 	float aspectRatio = 16.f / 9.f;
 	bool leftHandedProjection = true;
-	CGimbalInputBinder inputBinding;
 
 	std::optional<uint32_t> boundProjectionIx = std::nullopt;
 	std::optional<uint32_t> lastBoundPerspectivePresetProjectionIx = std::nullopt;
 	std::optional<uint32_t> lastBoundOrthoPresetProjectionIx = std::nullopt;
-	std::optional<uint32_t> inputBindingProjectionIx = std::nullopt;
-	uint32_t inputBindingPlanarIx = InvalidPlanarIx;
 
 	inline void pickDefaultProjections(const planar_projections_range_t& projections)
 	{
@@ -72,8 +69,6 @@ struct SWindowControlBinding final
 		init(lastBoundPerspectivePresetProjectionIx = std::nullopt, IPlanarProjection::CProjection::Perspective);
 		init(lastBoundOrthoPresetProjectionIx = std::nullopt, IPlanarProjection::CProjection::Orthographic);
 		boundProjectionIx = lastBoundPerspectivePresetProjectionIx.value();
-		inputBindingProjectionIx = std::nullopt;
-		inputBindingPlanarIx = InvalidPlanarIx;
 	}
 };
 
@@ -172,15 +167,7 @@ struct SCameraAppSceneDebugDefaults final
 
 struct SCameraAppInputDefaults final
 {
-	static inline constexpr float KeyboardScale = 0.00625f;
 	static inline constexpr float UnitScale = 1.0f;
-};
-
-struct SCameraAppCameraFactoryDefaults final
-{
-	static inline constexpr double DefaultMoveScale = 0.01;
-	static inline constexpr double DefaultRotateScale = 0.003;
-	static inline constexpr double TargetRigMoveScale = 0.5;
 };
 
 struct SCameraAppProjectionUiDefaults final
@@ -368,8 +355,8 @@ protected:
 struct VirtualEventLogEntry final
 {
 	uint64_t frame = 0u;
-	CVirtualGimbalEvent::VirtualEventType type = CVirtualGimbalEvent::None;
-	float64_t magnitude = 0.0;
+	ECameraControlAxis axis = static_cast<ECameraControlAxis>(0u);
+	float64_t value = 0.0;
 	std::string source;
 	std::string inputSource;
 	std::string camera;
@@ -501,11 +488,9 @@ struct CameraControlSettings final
 {
 	bool mirrorInput = false;
 	bool worldTranslate = false;
-	float keyboardScale = SCameraAppInputDefaults::KeyboardScale;
-	float mouseMoveScale = SCameraAppInputDefaults::UnitScale;
-	float mouseScrollScale = SCameraAppInputDefaults::UnitScale;
-	float translationScale = SCameraAppInputDefaults::UnitScale;
-	float rotationScale = SCameraAppInputDefaults::UnitScale;
+	// multiply the default binding's rates and gains; the length axes and the angle axes scale apart
+	float translateScale = SCameraAppInputDefaults::UnitScale;
+	float rotateScale = SCameraAppInputDefaults::UnitScale;
 };
 
 struct SScriptedFrameInputState final
@@ -514,7 +499,9 @@ struct SScriptedFrameInputState final
 	std::vector<CCameraScriptedActionEvent> actions = {};
 	std::vector<SMouseEvent> mouse;
 	std::vector<SKeyboardEvent> keyboard;
-	std::vector<CVirtualGimbalEvent> imguizmoVirtualEvents;
+	// what the scripted gizmo deltas of this frame amounted to, for the checks to read back
+	SCameraControls imguizmoControls = {};
+	bool hasImguizmoControls = false;
 
 	inline bool hasRuntimePayload() const
 	{

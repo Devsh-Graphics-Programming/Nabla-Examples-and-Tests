@@ -16,16 +16,10 @@ namespace nbl::this_example
 
 struct CCameraScriptedControlOverrides
 {
-    bool hasKeyboardScale = false;
-    float keyboardScale = 1.f;
-    bool hasMouseMoveScale = false;
-    float mouseMoveScale = 1.f;
-    bool hasMouseScrollScale = false;
-    float mouseScrollScale = 1.f;
-    bool hasTranslationScale = false;
-    float translationScale = 1.f;
-    bool hasRotationScale = false;
-    float rotationScale = 1.f;
+    bool hasTranslateScale = false;
+    float translateScale = 1.f;
+    bool hasRotateScale = false;
+    float rotateScale = 1.f;
 };
 
 struct CCameraScriptedInputParseResult

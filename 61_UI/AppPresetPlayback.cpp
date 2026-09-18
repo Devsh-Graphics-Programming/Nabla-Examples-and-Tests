@@ -75,30 +75,36 @@ void App::appendVirtualEventLog(
 	std::string_view inputSource,
 	const uint32_t planarIx,
 	ICamera* camera,
-	const CVirtualGimbalEvent* events,
-	const uint32_t count)
+	const SCameraControls& controls)
 {
-	m_uiMetrics.virtualEventsThisFrame += count;
 	const std::string sourceStr(source);
 	const std::string inputSourceStr(inputSource);
 	const std::string cameraName = camera ? std::string(camera->getIdentifier()) : std::string("None");
-	for (uint32_t i = 0u; i < count; ++i)
+
+	// one line per axis the frame actually carried
+	for (uint32_t i = 0u; i < CameraControlAxisCount; ++i)
 	{
-		const auto* eventName = CVirtualGimbalEvent::virtualEventToString(events[i].type).data();
+		const auto axis = cameraControlAxisFromIndex(i);
+		const auto value = controls.axis(axis);
+		if (value == 0.0)
+			continue;
+
+		++m_uiMetrics.virtualEventsThisFrame;
+		const std::string axisName(cameraControlAxisName(axis));
 		auto line = m_logFormatter->format(
 			ILogger::ELL_INFO,
-			"virtual frame=%llu src=%s input=%s cam=%s planar=%u event=%s mag=%.6f",
+			"control frame=%llu src=%s input=%s cam=%s planar=%u axis=%s value=%.6f",
 			static_cast<unsigned long long>(m_realFrameIx),
 			sourceStr.c_str(),
 			inputSourceStr.c_str(),
 			cameraName.c_str(),
 			planarIx,
-			eventName,
-			events[i].magnitude);
+			axisName.c_str(),
+			value);
 		m_eventLog.entries.push_back({
 			m_realFrameIx,
-			events[i].type,
-			events[i].magnitude,
+			axis,
+			value,
 			sourceStr,
 			inputSourceStr,
 			cameraName,

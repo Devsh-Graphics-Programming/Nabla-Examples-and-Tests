@@ -20,12 +20,10 @@ void App::drawControlPanelCameraTab(const nbl::ui::SCameraControlPanelStyle& pan
 	{
 		nbl::ui::CCameraControlPanelUiUtilities::drawCheckboxWithHint(spec);
 	}
+	// both scale the active camera's binding, which is re-derived from its default every frame
 	for (const auto& spec : {
-		slider_spec_t{ .label = "Keyboard scale", .value = &m_cameraControls.keyboardScale, .minValue = SCameraAppControlPanelRangeDefaults::InputScaleMin, .maxValue = SCameraAppControlPanelRangeDefaults::InputScaleMax, .format = "%.2f", .hint = "Scale keyboard movement magnitudes" },
-		slider_spec_t{ .label = "Mouse move scale", .value = &m_cameraControls.mouseMoveScale, .minValue = SCameraAppControlPanelRangeDefaults::InputScaleMin, .maxValue = SCameraAppControlPanelRangeDefaults::InputScaleMax, .format = "%.2f", .hint = "Scale mouse move magnitudes" },
-		slider_spec_t{ .label = "Mouse scroll scale", .value = &m_cameraControls.mouseScrollScale, .minValue = SCameraAppControlPanelRangeDefaults::InputScaleMin, .maxValue = SCameraAppControlPanelRangeDefaults::InputScaleMax, .format = "%.2f", .hint = "Scale mouse wheel magnitudes" },
-		slider_spec_t{ .label = "Translate scale", .value = &m_cameraControls.translationScale, .minValue = SCameraAppControlPanelRangeDefaults::InputScaleMin, .maxValue = SCameraAppControlPanelRangeDefaults::InputScaleMax, .format = "%.2f", .hint = "Overall translation scale for virtual events" },
-		slider_spec_t{ .label = "Rotate scale", .value = &m_cameraControls.rotationScale, .minValue = SCameraAppControlPanelRangeDefaults::InputScaleMin, .maxValue = SCameraAppControlPanelRangeDefaults::InputScaleMax, .format = "%.2f", .hint = "Overall rotation scale for virtual events" }
+		slider_spec_t{ .label = "Translate scale", .value = &m_cameraControls.translateScale, .minValue = SCameraAppControlPanelRangeDefaults::InputScaleMin, .maxValue = SCameraAppControlPanelRangeDefaults::InputScaleMax, .format = "%.2f", .hint = "Scale the rates and gains of the length axes" },
+		slider_spec_t{ .label = "Rotate scale", .value = &m_cameraControls.rotateScale, .minValue = SCameraAppControlPanelRangeDefaults::InputScaleMin, .maxValue = SCameraAppControlPanelRangeDefaults::InputScaleMax, .format = "%.2f", .hint = "Scale the rates and gains of the angle axes" }
 	})
 	{
 		nbl::ui::CCameraControlPanelUiUtilities::drawSliderFloatWithHint(spec);

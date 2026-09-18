@@ -50,8 +50,7 @@ void App::runActiveFrameScriptedChecks(const SScriptedFrameInputState& scriptedF
 		{
 			.frame = m_realFrameIx,
 			.camera = hasRuntimeContext ? runtimeContext.viewport.camera : nullptr,
-			.imguizmoVirtual = scriptedFrame.imguizmoVirtualEvents.data(),
-			.imguizmoVirtualCount = static_cast<uint32_t>(scriptedFrame.imguizmoVirtualEvents.size()),
+			.imguizmoControls = scriptedFrame.hasImguizmoControls ? &scriptedFrame.imguizmoControls : nullptr,
 			.trackedTarget = &m_sceneInteraction.followTarget,
 			.followConfig = hasRuntimeContext ? runtimeContext.followConfig : nullptr,
 			.followProjectionContext = hasRuntimeContext ? runtimeContext.getProjectionContext() : nullptr,

@@ -47,8 +47,8 @@ struct CCameraScriptedCheckContext
 {
     uint64_t frame = 0ull;
     ICamera* camera = nullptr;
-    const CVirtualGimbalEvent* imguizmoVirtual = nullptr;
-    uint32_t imguizmoVirtualCount = 0u;
+    /// @brief What the scripted gizmo deltas of this frame amounted to, or null when the frame had none.
+    const SCameraControls* imguizmoControls = nullptr;
     const CTrackedTarget* trackedTarget = nullptr;
     const SCameraFollowConfig* followConfig = nullptr;
     const SCameraProjectionContext* followProjectionContext = nullptr;
@@ -217,7 +217,7 @@ inline CCameraScriptedCheckFrameResult CCameraScriptedCheckRunnerUtilities::eval
             case CCameraScriptedInputCheck::Kind::ImguizmoVirtual:
             {
                 bool ok = true;
-                if (!context.imguizmoVirtual || context.imguizmoVirtualCount == 0u)
+                if (!context.imguizmoControls)
                 {
                     ok = false;
                 }
@@ -225,19 +225,8 @@ inline CCameraScriptedCheckFrameResult CCameraScriptedCheckRunnerUtilities::eval
                 {
                     for (const auto& expected : check.expectedVirtualEvents)
                     {
-                        bool found = false;
-                        double actual = 0.0;
-                        for (uint32_t i = 0u; i < context.imguizmoVirtualCount; ++i)
-                        {
-                            if (context.imguizmoVirtual[i].type == expected.type)
-                            {
-                                found = true;
-                                actual = context.imguizmoVirtual[i].magnitude;
-                                break;
-                            }
-                        }
-
-                        if (!found || hlsl::abs(actual - expected.magnitude) > check.tolerance)
+                        const double actual = context.imguizmoControls->axis(expected.axis);
+                        if (hlsl::abs(actual - expected.value) > check.tolerance)
                         {
                             ok = false;
                             appendScriptedCheckLog(
@@ -247,8 +236,8 @@ inline CCameraScriptedCheckFrameResult CCameraScriptedCheckRunnerUtilities::eval
                                 {
                                     oss << std::fixed << std::setprecision(6);
                                     oss << "[script][fail] imguizmo_virtual frame=" << context.frame
-                                        << " type=" << CVirtualGimbalEvent::virtualEventToString(expected.type).data()
-                                        << " expected=" << expected.magnitude
+                                        << " axis=" << cameraControlAxisName(expected.axis)
+                                        << " expected=" << expected.value
                                         << " actual=" << actual
                                         << " tol=" << check.tolerance;
                                 }));
@@ -264,7 +253,7 @@ inline CCameraScriptedCheckFrameResult CCameraScriptedCheckRunnerUtilities::eval
                         buildScriptedCheckMessage([&](std::ostringstream& oss)
                         {
                             oss << "[script][pass] imguizmo_virtual frame=" << context.frame
-                                << " events=" << check.expectedVirtualEvents.size();
+                                << " axes=" << check.expectedVirtualEvents.size();
                         }));
                 }
                 break;

@@ -159,7 +159,7 @@ class App final : public examples::SimpleWindowedApplication, public examples::B
 		void storeApplyStatusBanner(ApplyStatusBanner& banner, std::string summary, bool succeeded, bool approximate);
 		void clearApplyStatusBanner(ApplyStatusBanner& banner);
 		void storePlaybackApplySummary(const SCameraPresetApplySummary& summary);
-		void appendVirtualEventLog(std::string_view source, std::string_view inputSource, uint32_t planarIx, ICamera* camera, const CVirtualGimbalEvent* events, uint32_t count);
+		void appendVirtualEventLog(std::string_view source, std::string_view inputSource, uint32_t planarIx, ICamera* camera, const SCameraControls& controls);
 		SCameraPresetApplySummary applyPresetToTargets(const CameraPreset& preset);
 		bool tryBuildPlaybackPresetAtTime(float time, CameraPreset& preset);
 		bool applyPlaybackAtTime(float time);
@@ -243,7 +243,7 @@ class App final : public examples::SimpleWindowedApplication, public examples::B
 		void updateScriptedMouseButtons(std::span<const SMouseEvent> scriptedMouse);
 		void appendScriptedInputEvents(const SScriptedFrameInputState& scriptedFrame, SCapturedUiEvents& capturedEvents);
 		void syncDynamicPerspectiveForPlanar(planar_projection_t* planar, ICamera* camera);
-		void logScriptedVirtualEvents(const char* label, std::span<const CVirtualGimbalEvent> events) const;
+		void logScriptedVirtualEvents(const char* label, const SCameraControls& controls) const;
 		void applyActiveCameraInput(std::span<const SKeyboardEvent> keyboardEvents, std::span<const SMouseEvent> mouseEvents, bool skipCameraInput);
 		void applyScriptedImguizmoInput(SScriptedFrameInputState& scriptedFrame, bool skipCameraInput);
 		void applyScriptedGoals(const CCameraScriptedFrameEvents& scriptedFrameEvents, bool skipCameraInput);
@@ -328,8 +328,8 @@ class App final : public examples::SimpleWindowedApplication, public examples::B
 
 		std::vector<nbl::core::smart_refctd_ptr<planar_projection_t>> m_planarProjections;
 
-		void syncWindowInputBinding(SWindowControlBinding& binding);
-		void syncWindowInputBindingToProjection(SWindowControlBinding& binding);
+		/// @brief Rebuild the input binding from the active camera's kind and the sensitivity settings.
+		void refreshCameraInputBinding(ICamera* camera);
 
 		static constexpr inline auto MaxSceneFBOs = 2u;
 		SCameraAppViewportSessionState<MaxSceneFBOs> m_viewports;
@@ -346,6 +346,9 @@ class App final : public examples::SimpleWindowedApplication, public examples::B
 		SCameraAppCliRuntimeState m_cliRuntime;
 		SScriptedInputRuntimeState m_scriptedInput;
 		CameraControlSettings m_cameraControls;
+		// one controller for the app: it owns the held-key state and consumes one frame window per `collect`
+		CCameraMouseKeyboardController m_cameraController;
+		ICamera::CameraKind m_cameraInputBindingKind = ICamera::CameraKind::Unknown;
 		CameraConstraintSettings m_cameraConstraints;
 		core::smart_refctd_ptr<CUILogFormatter> m_logFormatter;
 		SCameraAppEventLogState m_eventLog;

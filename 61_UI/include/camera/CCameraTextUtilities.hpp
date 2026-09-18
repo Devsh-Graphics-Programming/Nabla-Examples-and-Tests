@@ -108,11 +108,27 @@ public:
 			case CCameraGoalSolver::SApplyResult::EStatus::Failed: oss << "Failed"; break;
 			case CCameraGoalSolver::SApplyResult::EStatus::AlreadySatisfied: oss << "AlreadySatisfied"; break;
 			case CCameraGoalSolver::SApplyResult::EStatus::AppliedAbsoluteOnly: oss << "AppliedAbsoluteOnly"; break;
-			case CCameraGoalSolver::SApplyResult::EStatus::AppliedVirtualEvents: oss << "AppliedVirtualEvents"; break;
-			case CCameraGoalSolver::SApplyResult::EStatus::AppliedAbsoluteAndVirtualEvents: oss << "AppliedAbsoluteAndVirtualEvents"; break;
+			case CCameraGoalSolver::SApplyResult::EStatus::AppliedControls: oss << "AppliedControls"; break;
+			case CCameraGoalSolver::SApplyResult::EStatus::AppliedAbsoluteAndControls: oss << "AppliedAbsoluteAndControls"; break;
 		}
 		oss << " exact=" << (result.exact ? "true" : "false")
-			<< " events=" << result.eventCount;
+			<< " axes=";
+
+		{
+			bool firstAxis = true;
+			for (uint32_t i = 0u; i < CameraControlAxisCount; ++i)
+			{
+				const auto axis = cameraControlAxisFromIndex(i);
+				if ((result.appliedAxes & axis) == 0u)
+					continue;
+				if (!firstAxis)
+					oss << ",";
+				oss << cameraControlAxisName(axis);
+				firstAxis = false;
+			}
+			if (firstAxis)
+				oss << "none";
+		}
 
 		if (result.issues != CCameraGoalSolver::SApplyResult::EIssue::NoIssue)
 		{
@@ -132,7 +148,7 @@ public:
 			appendIssue("missing_spherical_state", CCameraGoalSolver::SApplyResult::EIssue::MissingSphericalTargetState);
 			appendIssue("missing_path_state", CCameraGoalSolver::SApplyResult::EIssue::MissingPathState);
 			appendIssue("missing_dynamic_perspective_state", CCameraGoalSolver::SApplyResult::EIssue::MissingDynamicPerspectiveState);
-			appendIssue("virtual_event_replay_failed", CCameraGoalSolver::SApplyResult::EIssue::VirtualEventReplayFailed);
+			appendIssue("control_frame_failed", CCameraGoalSolver::SApplyResult::EIssue::ControlFrameFailed);
 		}
 
 		return oss.str();
