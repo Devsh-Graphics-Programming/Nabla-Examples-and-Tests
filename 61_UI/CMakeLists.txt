@@ -27,6 +27,20 @@ if(TARGET Nabla::ext::FullScreenTriangle AND TARGET Nabla::ext::Cameras AND TARG
 
 	nbl_create_executable_project("${NBL_EXTRA_SOURCES}" "" "${NBL_INCLUDE_SERACH_DIRECTORIES}" "${NBL_LIBRARIES}")
 
+	# camera configs are read through the "app_resources" mount alias, so they must be embedded as builtins
+	file(GLOB_RECURSE APP_RESOURCE_KEYS
+		RELATIVE "${CMAKE_CURRENT_SOURCE_DIR}/app_resources" CONFIGURE_DEPENDS
+		"${CMAKE_CURRENT_SOURCE_DIR}/app_resources/*"
+	)
+
+	NBL_CREATE_RESOURCE_ARCHIVE(
+		NAMESPACE nbl::this_example::builtin
+		TARGET ${EXECUTABLE_NAME}_builtins
+		LINK_TO ${EXECUTABLE_NAME}
+		BIND "${CMAKE_CURRENT_SOURCE_DIR}/app_resources"
+		BUILTINS ${APP_RESOURCE_KEYS}
+	)
+
 	nam_add_channel_target(
 		TARGET ${EXECUTABLE_NAME}_envmaps
 		CHANNEL envmaps
