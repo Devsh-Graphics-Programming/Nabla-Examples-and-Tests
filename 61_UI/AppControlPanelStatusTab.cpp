@@ -69,7 +69,7 @@ void App::drawControlPanelStatusTab(const nbl::ui::SCameraControlPanelStyle& pan
 	auto& planar = m_planarProjections[binding.activePlanarIx];
 	if (planar && binding.boundProjectionIx.has_value())
 	{
-		auto& projection = planar->getPlanarProjections()[binding.boundProjectionIx.value()];
+		auto& projection = planar->getProjections()[binding.boundProjectionIx.value()];
 		const auto& params = projection.getParameters();
 		if (nbl::ui::CCameraControlPanelUiUtilities::beginCard("ProjectionCard", nbl::ui::CCameraControlPanelUiUtilities::calcCameraControlPanelCardHeight(4, panelStyle), panelStyle.CardTopColor, panelStyle.CardBottomColor, panelStyle.CardBorderColor, panelStyle))
 		{
@@ -77,20 +77,20 @@ void App::drawControlPanelStatusTab(const nbl::ui::SCameraControlPanelStyle& pan
 			{
 				ImGui::TableSetupColumn("Label", ImGuiTableColumnFlags_WidthFixed, panelStyle.SummaryLabelColumnWidth);
 				ImGui::TableSetupColumn("Value", ImGuiTableColumnFlags_WidthStretch);
-				const auto zNearText = std::format("{:.2f}", params.m_zNear);
-				const auto zFarText = std::format("{:.2f}", params.m_zFar);
-				const auto typeText = params.m_type == IPlanarProjection::CProjection::Perspective ? "Perspective" : "Orthographic";
+				const auto zNearText = std::format("{:.2f}", params.zNear);
+				const auto zFarText = std::format("{:.2f}", params.zFar);
+				const auto typeText = params.kind == CPlanarProjection::EKind::Perspective ? "Perspective" : "Orthographic";
 				nbl::ui::CCameraControlPanelUiUtilities::drawStatusLine({ .label = "Type", .value = typeText, .dotColor = panelStyle.AccentColor, .valueColor = panelStyle.MutedColor }, panelStyle);
 				nbl::ui::CCameraControlPanelUiUtilities::drawStatusLine({ .label = "zNear", .value = zNearText, .dotColor = panelStyle.MutedColor, .valueColor = panelStyle.MutedColor }, panelStyle);
 				nbl::ui::CCameraControlPanelUiUtilities::drawStatusLine({ .label = "zFar", .value = zFarText, .dotColor = panelStyle.MutedColor, .valueColor = panelStyle.MutedColor }, panelStyle);
-				if (params.m_type == IPlanarProjection::CProjection::Perspective)
+				if (params.kind == CPlanarProjection::EKind::Perspective)
 				{
-					const auto fovText = std::format("{:.1f}", params.m_planar.perspective.fov);
+					const auto fovText = std::format("{:.1f}", params.perspective.fov);
 					nbl::ui::CCameraControlPanelUiUtilities::drawStatusLine({ .label = "Fov", .value = fovText, .dotColor = panelStyle.MutedColor, .valueColor = panelStyle.MutedColor }, panelStyle);
 				}
 				else
 				{
-					const auto orthoWidthText = std::format("{:.1f}", params.m_planar.orthographic.orthoWidth);
+					const auto orthoWidthText = std::format("{:.1f}", params.orthographic.orthoWidth);
 					nbl::ui::CCameraControlPanelUiUtilities::drawStatusLine({ .label = "Ortho width", .value = orthoWidthText, .dotColor = panelStyle.MutedColor, .valueColor = panelStyle.MutedColor }, panelStyle);
 				}
 				ImGui::EndTable();

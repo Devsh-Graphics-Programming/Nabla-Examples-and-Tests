@@ -271,7 +271,7 @@ inline bool tryParsePlanarConfigFromJson(
 
 inline bool tryAppendProjectionFromJson(
     const camera_json_t& jProjection,
-    std::vector<ext::cameras::IPlanarProjection::CProjection>& outProjections,
+    std::vector<ext::cameras::CPlanarProjection>& outProjections,
     std::string& error)
 {
     if (!jsonContainsAll(jProjection, {
@@ -296,7 +296,7 @@ inline bool tryAppendProjectionFromJson(
         }
 
         outProjections.emplace_back(
-            ext::cameras::IPlanarProjection::CProjection::create<ext::cameras::IPlanarProjection::CProjection::Perspective>(
+            ext::cameras::CPlanarProjection::createPerspective(
                 zNear,
                 zFar,
                 jProjection[SCameraConfigJsonKeys::Fov].get<float>()));
@@ -312,7 +312,7 @@ inline bool tryAppendProjectionFromJson(
         }
 
         outProjections.emplace_back(
-            ext::cameras::IPlanarProjection::CProjection::create<ext::cameras::IPlanarProjection::CProjection::Orthographic>(
+            ext::cameras::CPlanarProjection::createOrthographic(
                 zNear,
                 zFar,
                 jProjection[SCameraConfigJsonKeys::OrthoWidth].get<float>()));
@@ -406,7 +406,7 @@ bool tryLoadCameraCollectionFromJson(
 bool tryLoadProjectionCollectionFromJson(
     const camera_json_t& json,
     std::string& error,
-    std::vector<ext::cameras::IPlanarProjection::CProjection>& outProjections)
+    std::vector<ext::cameras::CPlanarProjection>& outProjections)
 {
     outProjections.clear();
     if (!json.contains(SCameraConfigJsonKeys::Projections) || !json[SCameraConfigJsonKeys::Projections].is_array())

@@ -58,7 +58,7 @@ inline float computeViewportGizmoClipSize(
 {
     const auto viewPosition = mul(viewportState.viewMatrix, float32_t4(worldPosition, 1.0f));
     const float depth = std::max(SCameraAppViewportDefaults::MinPerspectiveGizmoDepth, hlsl::abs(viewPosition.z));
-    if (viewportState.projection->getParameters().m_type == IPlanarProjection::CProjection::Perspective)
+    if (viewportState.projection->getParameters().kind == CPlanarProjection::EKind::Perspective)
         return (worldRadius * viewportState.projectionMatrix[1][1]) / depth;
 
     return worldRadius * viewportState.projectionMatrix[1][1];

@@ -14,8 +14,8 @@
 
 #include "common.hpp"
 
-using planar_projections_range_t = std::vector<IPlanarProjection::CProjection>;
-using planar_projection_t = CPlanarProjection;
+using planar_projections_range_t = std::vector<CPlanarProjection>;
+using planar_projection_t = CCameraWithProjections;
 
 struct ImGuizmoPlanarM16InOut
 {
@@ -51,12 +51,12 @@ struct SWindowControlBinding final
 
 	inline void pickDefaultProjections(const planar_projections_range_t& projections)
 	{
-		auto init = [&](std::optional<uint32_t>& presetix, IPlanarProjection::CProjection::ProjectionType requestedType) -> void
+		auto init = [&](std::optional<uint32_t>& presetix, CPlanarProjection::EKind requestedType) -> void
 		{
 			for (uint32_t i = 0u; i < projections.size(); ++i)
 			{
 				const auto& params = projections[i].getParameters();
-				if (params.m_type == requestedType)
+				if (params.kind == requestedType)
 				{
 					presetix = i;
 					break;
@@ -66,8 +66,8 @@ struct SWindowControlBinding final
 			assert(presetix.has_value());
 		};
 
-		init(lastBoundPerspectivePresetProjectionIx = std::nullopt, IPlanarProjection::CProjection::Perspective);
-		init(lastBoundOrthoPresetProjectionIx = std::nullopt, IPlanarProjection::CProjection::Orthographic);
+		init(lastBoundPerspectivePresetProjectionIx = std::nullopt, CPlanarProjection::EKind::Perspective);
+		init(lastBoundOrthoPresetProjectionIx = std::nullopt, CPlanarProjection::EKind::Orthographic);
 		boundProjectionIx = lastBoundPerspectivePresetProjectionIx.value();
 	}
 };

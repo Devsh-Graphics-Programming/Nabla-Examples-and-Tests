@@ -97,7 +97,7 @@ void App::applyScriptedFrameActions(std::span<const nbl::this_example::CCameraSc
 			case nbl::this_example::ECameraScriptedActionCode::SetProjectionType:
 			{
 				auto& binding = m_viewports.windowBindings[m_viewports.activeRenderWindowIx];
-				const auto type = static_cast<IPlanarProjection::CProjection::ProjectionType>(action.value);
+				const auto type = static_cast<CPlanarProjection::EKind>(action.value);
 				if (!nbl::ui::trySelectBindingProjectionType(
 						getPlanarProjectionSpan(),
 						binding,
@@ -110,7 +110,7 @@ void App::applyScriptedFrameActions(std::span<const nbl::this_example::CCameraSc
 			case nbl::this_example::ECameraScriptedActionCode::SetProjectionIndex:
 			{
 				auto& binding = m_viewports.windowBindings[m_viewports.activeRenderWindowIx];
-				auto& projections = m_planarProjections[binding.activePlanarIx]->getPlanarProjections();
+				auto& projections = m_planarProjections[binding.activePlanarIx]->getProjections();
 				if (action.value < 0 || static_cast<size_t>(action.value) >= projections.size())
 				{
 					m_logger->log("[script][warn] action set_projection_index out of range: %d", ILogger::ELL_WARNING, action.value);
@@ -232,7 +232,7 @@ void App::syncDynamicPerspectiveForPlanar(planar_projection_t* planar, ICamera* 
 	if (!planar || !camera)
 		return;
 
-	for (auto& projection : planar->getPlanarProjections())
+	for (auto& projection : planar->getProjections())
 		CCameraProjectionUtilities::syncDynamicPerspectiveProjection(camera, projection);
 }
 

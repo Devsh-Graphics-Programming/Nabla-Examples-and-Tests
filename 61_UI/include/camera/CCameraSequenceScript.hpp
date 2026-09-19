@@ -19,7 +19,7 @@
 #include "nbl/ext/Cameras/CCameraMathUtilities.hpp"
 #include "CCameraKeyframeTrack.hpp"
 #include "nbl/ext/Cameras/CCameraPathUtilities.hpp"
-#include "nbl/ext/Cameras/IPlanarProjection.hpp"
+#include "nbl/ext/Cameras/CPlanarProjection.hpp"
 
 using namespace nbl;
 using namespace nbl::ext::cameras;
@@ -47,7 +47,7 @@ using namespace nbl::ext::cameras;
 /// @brief Authored projection view request for camera-sequence playback.
 struct CCameraSequencePresentation
 {
-    IPlanarProjection::CProjection::ProjectionType projection = IPlanarProjection::CProjection::Perspective;
+    CPlanarProjection::EKind projection = CPlanarProjection::EKind::Perspective;
     bool leftHanded = true;
 };
 
@@ -318,7 +318,7 @@ struct CCameraSequenceCompiledFramePolicy
 struct CCameraSequenceScriptUtilities final
 {
     static bool tryParseCameraKind(std::string_view value, ICamera::CameraKind& outKind);
-    static bool tryParseProjectionType(std::string_view value, IPlanarProjection::CProjection::ProjectionType& outType);
+    static bool tryParseProjectionType(std::string_view value, CPlanarProjection::EKind& outType);
     static void normalizeCaptureFractions(std::vector<float>& fractions);
     static bool buildSequenceKeyframePreset(const CCameraPreset& reference, const CCameraSequenceKeyframe& authored, CCameraPreset& outPreset, std::string* error = nullptr);
     static bool buildSequenceTrackFromReference(const CCameraPreset& reference, const CCameraSequenceSegment& segment, CCameraKeyframeTrack& outTrack, std::string* error = nullptr);
@@ -394,12 +394,12 @@ inline bool CCameraSequenceScriptUtilities::tryParseCameraKind(std::string_view 
     return true;
 }
 
-inline bool CCameraSequenceScriptUtilities::tryParseProjectionType(std::string_view value, IPlanarProjection::CProjection::ProjectionType& outType)
+inline bool CCameraSequenceScriptUtilities::tryParseProjectionType(std::string_view value, CPlanarProjection::EKind& outType)
 {
     if (value == "perspective" || value == "Perspective")
-        outType = IPlanarProjection::CProjection::Perspective;
+        outType = CPlanarProjection::EKind::Perspective;
     else if (value == "orthographic" || value == "Orthographic")
-        outType = IPlanarProjection::CProjection::Orthographic;
+        outType = CPlanarProjection::EKind::Orthographic;
     else
         return false;
 

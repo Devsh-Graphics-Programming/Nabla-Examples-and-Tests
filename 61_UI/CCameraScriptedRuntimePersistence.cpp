@@ -299,9 +299,9 @@ bool parseScriptedProjectionActionValue(const json_t& event, nbl::this_example::
     {
         const auto valueText = event["value"].get<std::string>();
         if (valueText == "perspective")
-            action.value = static_cast<int32_t>(nbl::ext::cameras::IPlanarProjection::CProjection::Perspective);
+            action.value = static_cast<int32_t>(nbl::ext::cameras::CPlanarProjection::EKind::Perspective);
         else if (valueText == "orthographic")
-            action.value = static_cast<int32_t>(nbl::ext::cameras::IPlanarProjection::CProjection::Orthographic);
+            action.value = static_cast<int32_t>(nbl::ext::cameras::CPlanarProjection::EKind::Orthographic);
         else
         {
             nbl::this_example::CCameraScriptedRuntimePersistenceUtilities::appendScriptedInputParseWarning(out, "Scripted action projection type has invalid value \"" + valueText + "\".");

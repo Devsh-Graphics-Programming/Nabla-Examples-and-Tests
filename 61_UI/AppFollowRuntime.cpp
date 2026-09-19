@@ -176,7 +176,7 @@ void App::applyFollowToConfiguredCameras(const bool allowDuringScriptedInput)
 		if (!result.succeeded())
 			continue;
 
-		for (auto& projection : planar->getPlanarProjections())
+		for (auto& projection : planar->getProjections())
 			CCameraProjectionUtilities::syncDynamicPerspectiveProjection(camera, projection);
 	}
 }
@@ -203,7 +203,7 @@ void App::syncVisualDebugWindowBindings()
 	if (!nbl::ui::trySelectBindingProjectionType(
 			getPlanarProjectionSpan(),
 			perspectiveBinding,
-			IPlanarProjection::CProjection::Perspective))
+			CPlanarProjection::EKind::Perspective))
 	{
 		return;
 	}
@@ -230,7 +230,7 @@ void App::syncVisualDebugWindowBindings()
 	nbl::ui::trySelectBindingProjectionType(
 		getPlanarProjectionSpan(),
 		orthoBinding,
-		IPlanarProjection::CProjection::Orthographic);
+		CPlanarProjection::EKind::Orthographic);
 }
 
 void App::drawScriptVisualDebugOverlay(const ImVec2& displaySize)

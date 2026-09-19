@@ -50,7 +50,7 @@ void App::drawWindowedViewportWindow(uint32_t windowIx, ImGuiCond windowCond, bo
 	info.textureID = SCameraAppUiTextureSlots::viewport(windowIx);
 
 	ImGuizmo::AllowAxisFlip(binding.allowGizmoAxesToFlip);
-	ImGuizmo::SetOrthographic(projection.getParameters().m_type == IPlanarProjection::CProjection::Orthographic);
+	ImGuizmo::SetOrthographic(projection.getParameters().kind == CPlanarProjection::EKind::Orthographic);
 	ImGuizmo::SetDrawlist();
 	nbl::ui::drawViewportTextureAndOverlay(
 		info,
@@ -78,7 +78,7 @@ void App::drawViewportWindowOverlay(
 	const SWindowControlBinding& binding,
 	const nbl::ui::SBoundViewportCameraState& viewportState) const
 {
-	const char* projLabel = viewportState.projection->getParameters().m_type == IPlanarProjection::CProjection::Perspective ? "Persp" : "Ortho";
+	const char* projLabel = viewportState.projection->getParameters().kind == CPlanarProjection::EKind::Perspective ? "Persp" : "Ortho";
 	nbl::ui::SCameraViewportInfoOverlayData overlayData = {};
 	overlayData.headline = "Planar " + std::to_string(binding.activePlanarIx) + " | " + projLabel + " | W" + std::to_string(windowIx);
     overlayData.description = std::string(CCameraTextUtilities::getCameraTypeLabel(viewportState.camera)) + ": " + std::string(CCameraTextUtilities::getCameraTypeDescription(viewportState.camera));

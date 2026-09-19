@@ -792,8 +792,8 @@
 		sequence.fps = SCameraSmokeSequenceDefaults::Fps;
 		sequence.defaults.durationSeconds = SCameraSmokeSequenceDefaults::DurationSeconds;
 		sequence.defaults.presentations = {
-			{ .projection = IPlanarProjection::CProjection::Perspective, .leftHanded = true },
-			{ .projection = IPlanarProjection::CProjection::Orthographic, .leftHanded = false }
+			{ .projection = CPlanarProjection::EKind::Perspective, .leftHanded = true },
+			{ .projection = CPlanarProjection::EKind::Orthographic, .leftHanded = false }
 		};
 		sequence.defaults.captureFractions = { SCameraSmokeSequenceDefaults::CaptureFractions[0], SCameraSmokeSequenceDefaults::CaptureFractions[1], SCameraSmokeSequenceDefaults::CaptureFractions[2] };
 
@@ -1442,7 +1442,7 @@
 				return false;
 			}
 
-			auto perspectiveProjection = IPlanarProjection::CProjection::create<IPlanarProjection::CProjection::Perspective>(
+			auto perspectiveProjection = CPlanarProjection::createPerspective(
 				SCameraSmokeManipulationDefaults::PerspectiveNearPlane,
 				SCameraSmokeManipulationDefaults::PerspectiveFarPlane,
 				SCameraSmokeManipulationDefaults::PerspectiveFovDeg);
@@ -1451,13 +1451,13 @@
 				outError = "Camera projection utilities smoke failed to sync dynamic perspective projection.";
 				return false;
 			}
-			if (hlsl::abs(static_cast<double>(perspectiveProjection.getParameters().m_planar.perspective.fov - dynamicFov)) > SCameraSmokeUtilityThresholds::DynamicPerspectiveDelta)
+			if (hlsl::abs(static_cast<double>(perspectiveProjection.getParameters().perspective.fov - dynamicFov)) > SCameraSmokeUtilityThresholds::DynamicPerspectiveDelta)
 			{
 				outError = "Camera projection utilities smoke produced wrong dynamic perspective FOV.";
 				return false;
 			}
 
-			auto orthographicProjection = IPlanarProjection::CProjection::create<IPlanarProjection::CProjection::Orthographic>(
+			auto orthographicProjection = CPlanarProjection::createOrthographic(
 				SCameraSmokeManipulationDefaults::PerspectiveNearPlane,
 				SCameraSmokeManipulationDefaults::PerspectiveFarPlane,
 				SCameraSmokeManipulationDefaults::OrthoExtent);

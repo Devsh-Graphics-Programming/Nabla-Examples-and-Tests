@@ -13,7 +13,7 @@ namespace nbl::ui
 struct SBoundViewportCameraState final
 {
     ICamera* camera = nullptr;
-    IPlanarProjection::CProjection* projection = nullptr;
+    CPlanarProjection* projection = nullptr;
     float32_t4x4 viewMatrix = float32_t4x4(1.0f);
     float32_t4x4 projectionMatrix = float32_t4x4(1.0f);
     float32_t4x4 viewProjMatrix = float32_t4x4(1.0f);
@@ -34,7 +34,7 @@ inline bool tryBuildCameraQueryBinding(
         if (!planar || planar->getCamera() != camera)
             continue;
 
-        const auto& projections = planar->getPlanarProjections();
+        const auto& projections = planar->getProjections();
         if (projections.empty())
             return false;
 
@@ -46,7 +46,7 @@ inline bool tryBuildCameraQueryBinding(
 
         for (uint32_t ix = 0u; ix < projections.size(); ++ix)
         {
-            if (projections[ix].getParameters().m_type != IPlanarProjection::CProjection::Perspective)
+            if (projections[ix].getParameters().kind != CPlanarProjection::EKind::Perspective)
                 continue;
 
             outBinding.boundProjectionIx = ix;
@@ -71,7 +71,7 @@ inline bool tryGetBindingPlanarProjections(
     if (!planar)
         return false;
 
-    outProjections = &planar->getPlanarProjections();
+    outProjections = &planar->getProjections();
     return true;
 }
 
@@ -88,7 +88,7 @@ inline bool trySelectBindingPlanar(
         return false;
 
     binding.activePlanarIx = planarIx;
-    binding.pickDefaultProjections(planar->getPlanarProjections());
+    binding.pickDefaultProjections(planar->getProjections());
     return true;
 }
 
@@ -109,19 +109,19 @@ inline bool ensureBindingDefaultProjections(
 inline bool trySelectBindingProjectionType(
     std::span<const nbl::core::smart_refctd_ptr<planar_projection_t>> planarProjections,
     SWindowControlBinding& binding,
-    const IPlanarProjection::CProjection::ProjectionType projectionType)
+    const CPlanarProjection::EKind projectionType)
 {
     if (!ensureBindingDefaultProjections(planarProjections, binding))
         return false;
 
     switch (projectionType)
     {
-        case IPlanarProjection::CProjection::Perspective:
+        case CPlanarProjection::EKind::Perspective:
             if (!binding.lastBoundPerspectivePresetProjectionIx.has_value())
                 return false;
             binding.boundProjectionIx = binding.lastBoundPerspectivePresetProjectionIx.value();
             return true;
-        case IPlanarProjection::CProjection::Orthographic:
+        case CPlanarProjection::EKind::Orthographic:
             if (!binding.lastBoundOrthoPresetProjectionIx.has_value())
                 return false;
             binding.boundProjectionIx = binding.lastBoundOrthoPresetProjectionIx.value();
@@ -143,10 +143,10 @@ inline bool trySelectBindingProjectionIndex(
         return false;
 
     binding.boundProjectionIx = projectionIx;
-    const auto projectionType = (*projections)[projectionIx].getParameters().m_type;
-    if (projectionType == IPlanarProjection::CProjection::Perspective)
+    const auto projectionType = (*projections)[projectionIx].getParameters().kind;
+    if (projectionType == CPlanarProjection::EKind::Perspective)
         binding.lastBoundPerspectivePresetProjectionIx = projectionIx;
-    else if (projectionType == IPlanarProjection::CProjection::Orthographic)
+    else if (projectionType == CPlanarProjection::EKind::Orthographic)
         binding.lastBoundOrthoPresetProjectionIx = projectionIx;
     return true;
 }
@@ -169,7 +169,7 @@ inline bool tryBuildWindowBindingMatrices(
     if (!camera)
         return false;
 
-    auto& projections = planar->getPlanarProjections();
+    auto& projections = planar->getProjections();
     const uint32_t projectionIx = binding.boundProjectionIx.value();
     if (projectionIx >= projections.size())
         return false;
@@ -184,7 +184,7 @@ inline bool tryBuildWindowBindingMatrices(
     outState.projectionMatrix = getCastedMatrix<float32_t>(projection.getProjectionMatrix());
     outState.viewProjMatrix = mul(outState.projectionMatrix, outState.viewMatrix);
 
-    binding.isOrthographicProjection = projection.getParameters().m_type == IPlanarProjection::CProjection::Orthographic;
+    binding.isOrthographicProjection = projection.getParameters().kind == CPlanarProjection::EKind::Orthographic;
     binding.viewMatrix = getCastedMatrix<float32_t>(camera->getGimbal().getViewMatrixLH());
     binding.projectionMatrix = outState.projectionMatrix;
     binding.viewProjMatrix = outState.viewProjMatrix;
@@ -289,7 +289,7 @@ inline bool initializeWindowBindingDefaults(
         if (!planar)
             return false;
 
-        binding.pickDefaultProjections(planar->getPlanarProjections());
+        binding.pickDefaultProjections(planar->getProjections());
         binding.boundProjectionIx = windowIx == 0u ?
             binding.lastBoundPerspectivePresetProjectionIx :
             binding.lastBoundOrthoPresetProjectionIx;

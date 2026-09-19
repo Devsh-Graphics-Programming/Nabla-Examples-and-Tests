@@ -91,14 +91,14 @@ inline bool drawProjectionPlanarSelector(
 }
 
 inline std::string getProjectionPresetName(
-    const IPlanarProjection::CProjection::ProjectionType projectionType,
+    const CPlanarProjection::EKind projectionType,
     const uint32_t projectionIx)
 {
     switch (projectionType)
     {
-        case IPlanarProjection::CProjection::Perspective:
+        case CPlanarProjection::EKind::Perspective:
             return "Perspective Projection Preset " + std::to_string(projectionIx);
-        case IPlanarProjection::CProjection::Orthographic:
+        case CPlanarProjection::EKind::Orthographic:
             return "Orthographic Projection Preset " + std::to_string(projectionIx);
         default:
             return "Unknown Projection Preset " + std::to_string(projectionIx);
@@ -108,18 +108,18 @@ inline std::string getProjectionPresetName(
 inline bool drawProjectionPresetSelector(
     std::span<const smart_refctd_ptr<planar_projection_t>> planarProjections,
     SActiveProjectionTabContext& runtime,
-    const IPlanarProjection::CProjection::ProjectionType projectionType)
+    const CPlanarProjection::EKind projectionType)
 {
     bool updateBoundVirtualMaps = false;
     auto& binding = runtime.requireBinding();
-    auto& projections = runtime.requirePlanar().getPlanarProjections();
+    auto& projections = runtime.requirePlanar().getProjections();
     if (!ImGui::BeginCombo("Projection Preset", getProjectionPresetName(projectionType, binding.boundProjectionIx.value()).c_str()))
         return false;
 
     for (uint32_t projectionIx = 0u; projectionIx < projections.size(); ++projectionIx)
     {
         const auto& projection = projections[projectionIx];
-        if (projection.getParameters().m_type != projectionType)
+        if (projection.getParameters().kind != projectionType)
             continue;
 
         const bool isSelected = projectionIx == binding.boundProjectionIx.value();
@@ -146,12 +146,12 @@ inline bool drawProjectionTypeSelector(
     RefreshRuntime&& refreshRuntime)
 {
     auto& binding = runtime.requireBinding();
-    auto selectedProjectionType = runtime.requirePlanar().getPlanarProjections()[binding.boundProjectionIx.value()].getParameters().m_type;
+    auto selectedProjectionType = runtime.requirePlanar().getProjections()[binding.boundProjectionIx.value()].getParameters().kind;
     constexpr const char* ProjectionTypeLabels[] = { "Perspective", "Orthographic" };
     int type = static_cast<int>(selectedProjectionType);
     if (ImGui::Combo("Projection Type", &type, ProjectionTypeLabels, IM_ARRAYSIZE(ProjectionTypeLabels)))
     {
-        selectedProjectionType = static_cast<IPlanarProjection::CProjection::ProjectionType>(type);
+        selectedProjectionType = static_cast<CPlanarProjection::EKind>(type);
         trySelectBindingProjectionType(
             planarProjections,
             binding,
@@ -176,7 +176,7 @@ inline void drawProjectionHandednessControls(SWindowControlBinding& binding)
 
 inline void drawProjectionParameterControls(
     SWindowControlBinding& binding,
-    IPlanarProjection::CProjection& boundProjection,
+    CPlanarProjection& boundProjection,
     const bool useWindow)
 {
     auto updateParameters = boundProjection.getParameters();
@@ -187,47 +187,47 @@ inline void drawProjectionParameterControls(
 
     drawProjectionHandednessControls(binding);
 
-    updateParameters.m_zNear = std::clamp(
-        updateParameters.m_zNear,
+    updateParameters.zNear = std::clamp(
+        updateParameters.zNear,
         SCameraAppProjectionUiDefaults::NearPlaneMin,
         SCameraAppProjectionUiDefaults::NearPlaneMax);
-    updateParameters.m_zFar = std::clamp(
-        updateParameters.m_zFar,
+    updateParameters.zFar = std::clamp(
+        updateParameters.zFar,
         SCameraAppProjectionUiDefaults::FarPlaneMin,
         SCameraAppProjectionUiDefaults::FarPlaneMax);
     for (const auto& spec : {
-        camera_panel_slider_spec_t{ .label = "zNear", .value = &updateParameters.m_zNear, .minValue = SCameraAppProjectionUiDefaults::NearPlaneMin, .maxValue = SCameraAppProjectionUiDefaults::NearPlaneMax, .format = "%.2f", .flags = ImGuiSliderFlags_Logarithmic, .hint = "Near clip plane" },
-        camera_panel_slider_spec_t{ .label = "zFar", .value = &updateParameters.m_zFar, .minValue = SCameraAppProjectionUiDefaults::FarPlaneMin, .maxValue = SCameraAppProjectionUiDefaults::FarPlaneMax, .format = "%.1f", .flags = ImGuiSliderFlags_Logarithmic, .hint = "Far clip plane" }
+        camera_panel_slider_spec_t{ .label = "zNear", .value = &updateParameters.zNear, .minValue = SCameraAppProjectionUiDefaults::NearPlaneMin, .maxValue = SCameraAppProjectionUiDefaults::NearPlaneMax, .format = "%.2f", .flags = ImGuiSliderFlags_Logarithmic, .hint = "Near clip plane" },
+        camera_panel_slider_spec_t{ .label = "zFar", .value = &updateParameters.zFar, .minValue = SCameraAppProjectionUiDefaults::FarPlaneMin, .maxValue = SCameraAppProjectionUiDefaults::FarPlaneMax, .format = "%.1f", .flags = ImGuiSliderFlags_Logarithmic, .hint = "Far clip plane" }
     })
     {
         CCameraControlPanelUiUtilities::drawSliderFloatWithHint(spec);
     }
 
-    switch (boundProjection.getParameters().m_type)
+    switch (boundProjection.getParameters().kind)
     {
-        case IPlanarProjection::CProjection::Perspective:
+        case CPlanarProjection::EKind::Perspective:
             CCameraControlPanelUiUtilities::drawSliderFloatWithHint({
                 .label = "Fov",
-                .value = &updateParameters.m_planar.perspective.fov,
+                .value = &updateParameters.perspective.fov,
                 .minValue = SCameraAppProjectionUiDefaults::PerspectiveFovMinDeg,
                 .maxValue = SCameraAppProjectionUiDefaults::PerspectiveFovMaxDeg,
                 .format = "%.1f",
                 .flags = ImGuiSliderFlags_Logarithmic,
                 .hint = "Perspective field of view"
             });
-            boundProjection.setPerspective(updateParameters.m_zNear, updateParameters.m_zFar, updateParameters.m_planar.perspective.fov);
+            boundProjection.setPerspective(updateParameters.zNear, updateParameters.zFar, updateParameters.perspective.fov);
             break;
-        case IPlanarProjection::CProjection::Orthographic:
+        case CPlanarProjection::EKind::Orthographic:
             CCameraControlPanelUiUtilities::drawSliderFloatWithHint({
                 .label = "Ortho width",
-                .value = &updateParameters.m_planar.orthographic.orthoWidth,
+                .value = &updateParameters.orthographic.orthoWidth,
                 .minValue = SCameraAppProjectionUiDefaults::OrthoWidthMin,
                 .maxValue = SCameraAppProjectionUiDefaults::OrthoWidthMax,
                 .format = "%.1f",
                 .flags = ImGuiSliderFlags_Logarithmic,
                 .hint = "Orthographic width"
             });
-            boundProjection.setOrthographic(updateParameters.m_zNear, updateParameters.m_zFar, updateParameters.m_planar.orthographic.orthoWidth);
+            boundProjection.setOrthographic(updateParameters.zNear, updateParameters.zFar, updateParameters.orthographic.orthoWidth);
             break;
         default:
             break;

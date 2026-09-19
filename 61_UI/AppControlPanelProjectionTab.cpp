@@ -59,11 +59,11 @@ void App::drawControlPanelProjectionTab(const nbl::ui::SCameraControlPanelStyle&
 		return;
 	}
 
-	const auto selectedProjectionType = runtime.requirePlanar().getPlanarProjections()[binding.boundProjectionIx.value()].getParameters().m_type;
+	const auto selectedProjectionType = runtime.requirePlanar().getProjections()[binding.boundProjectionIx.value()].getParameters().kind;
 	nbl::ui::drawProjectionPresetSelector(getPlanarProjectionSpan(), runtime, selectedProjectionType);
 	nbl::ui::CCameraControlPanelUiUtilities::drawHoverHint("Switch preset projection for this planar");
 
-	auto& boundProjection = runtime.requirePlanar().getPlanarProjections()[binding.boundProjectionIx.value()];
+	auto& boundProjection = runtime.requirePlanar().getProjections()[binding.boundProjectionIx.value()];
 	assert(!boundProjection.isProjectionSingular());
 	nbl::ui::drawProjectionParameterControls(binding, boundProjection, m_viewports.useWindow);
 

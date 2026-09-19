@@ -64,7 +64,7 @@ bool tryCaptureInitialPlanarPresets(
 bool tryBuildPlanarProjectionCollectionFromConfig(
     const SCameraPlanarConfigCollections& planarConfig,
     const std::span<const core::smart_refctd_ptr<ext::cameras::ICamera>> cameras,
-    const std::span<const ext::cameras::IPlanarProjection::CProjection> projections,
+    const std::span<const ext::cameras::CPlanarProjection> projections,
     std::vector<core::smart_refctd_ptr<planar_projection_t>>& outPlanars,
     std::string& error)
 {
@@ -102,7 +102,7 @@ bool tryBuildPlanarProjectionCollectionFromConfig(
                 return false;
             }
 
-            planar->getPlanarProjections().emplace_back(projections[projectionIx]);
+            planar->getProjections().emplace_back(projections[projectionIx]);
         }
     }
 
@@ -123,7 +123,7 @@ bool tryBuildCameraPlanarRuntime(
     return tryBuildPlanarProjectionCollectionFromConfig(
         collections.planarConfig,
         std::span<const core::smart_refctd_ptr<ext::cameras::ICamera>>(collections.cameras.data(), collections.cameras.size()),
-        std::span<const ext::cameras::IPlanarProjection::CProjection>(collections.projections.data(), collections.projections.size()),
+        std::span<const ext::cameras::CPlanarProjection>(collections.projections.data(), collections.projections.size()),
         outPlanars,
         error);
 }

@@ -38,7 +38,7 @@ struct SCameraConfigCollections final
 {
     std::string embeddedScriptedInputText = {};
     std::vector<core::smart_refctd_ptr<ext::cameras::ICamera>> cameras = {};
-    std::vector<ext::cameras::IPlanarProjection::CProjection> projections = {};
+    std::vector<ext::cameras::CPlanarProjection> projections = {};
     SCameraPlanarConfigCollections planarConfig = {};
 
     inline bool hasEmbeddedScriptedInputText() const

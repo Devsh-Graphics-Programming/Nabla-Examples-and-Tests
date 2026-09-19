@@ -46,7 +46,7 @@
 #include "nbl/ext/Cameras/CCameraMouseKeyboardController.hpp"
 #include "nbl/ext/Cameras/CCameraMouseKeyboardPresets.hpp"
 
-#include "nbl/ext/Cameras/CPlanarProjection.hpp"
+#include "nbl/ext/Cameras/CCameraWithProjections.hpp"
 // the example's headers
 #include "nbl/ui/ICursorControl.h"
 #include "nbl/ext/ImGui/ImGui.h"
@@ -161,8 +161,8 @@ using nbl::this_example::CCameraScriptedRuntimePersistenceUtilities;
 using nbl::this_example::CCameraSequenceScriptedSegmentBuildInfo;
 using nbl::this_example::CCameraSequenceScriptedBuilderUtilities;
 using nbl::this_example::SCameraConstraintSettings;
-using nbl::ext::cameras::IPlanarProjection;
 using nbl::ext::cameras::CPlanarProjection;
+using nbl::ext::cameras::CCameraWithProjections;
 using nbl::ext::cameras::SCameraControls;
 using nbl::ext::cameras::ECameraControlAxis;
 using nbl::ext::cameras::CameraControlAxisCount;
