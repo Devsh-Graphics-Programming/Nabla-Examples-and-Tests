@@ -135,7 +135,7 @@ inline bool CCameraScriptedCheckRunnerUtilities::scriptedCheckComputePoseDelta(
     const hlsl::math::quaternion<hlsl::float64_t>& referenceOrientation,
     SCameraPoseDelta<hlsl::float64_t>& outDelta)
 {
-    return CCameraMathUtilities::tryComputePoseDelta(
+    return tryComputePoseDelta(
         currentPosition,
         currentOrientation,
         referencePosition,
@@ -182,7 +182,7 @@ inline CCameraScriptedCheckFrameResult CCameraScriptedCheckRunnerUtilities::eval
         const auto& gimbal = context.camera->getGimbal();
         const auto pos = gimbal.getPosition();
         const auto orientation = hlsl::normalize(gimbal.getOrientation());
-        const auto eulerDeg = hlsl::_static_cast<hlsl::float32_t3>(CCameraMathUtilities::getCameraOrientationEulerDegrees(orientation));
+        const auto eulerDeg = hlsl::_static_cast<hlsl::float32_t3>(CCameraMathUtilities::getPitchYawRollDegrees(orientation));
 
         if (!CCameraMathUtilities::isFiniteVec3(pos) || !CCameraMathUtilities::isFiniteQuaternion(orientation) || !CCameraMathUtilities::isFiniteVec3(eulerDeg))
         {
@@ -281,8 +281,9 @@ inline CCameraScriptedCheckFrameResult CCameraScriptedCheckRunnerUtilities::eval
                 }
                 if (check.hasExpectedEuler)
                 {
-                    const auto expectedOrientation = CCameraMathUtilities::makeQuaternionFromEulerDegreesYXZ(
-                        hlsl::_static_cast<hlsl::float64_t3>(check.expectedEulerDeg));
+                    const auto expectedEulerDeg = hlsl::_static_cast<hlsl::float64_t3>(check.expectedEulerDeg);
+                    const auto expectedOrientation = hlsl::math::quaternion<hlsl::float64_t>::createFromYawPitchRoll(
+                        hlsl::radians(expectedEulerDeg.y), hlsl::radians(expectedEulerDeg.x), hlsl::radians(expectedEulerDeg.z));
                     SCameraPoseDelta<hlsl::float64_t> poseDelta = {};
                     if (!scriptedCheckComputePoseDelta(pos, orientation, pos, expectedOrientation, poseDelta))
                         poseDelta.rotationDeg = std::numeric_limits<hlsl::float64_t>::infinity();

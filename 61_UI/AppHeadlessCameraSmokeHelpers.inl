@@ -38,10 +38,10 @@
 	{
 		static inline const float64_t3 InitialTargetPosition = float64_t3(2.25, -0.75, 1.25);
 		static inline const quaternion<float64_t> InitialTargetOrientation =
-			hlsl::math::quaternion<hlsl::float64_t>::createFromEulerAnglesXYZ(0.18, -0.22, 0.41);
+			hlsl::math::quaternion<hlsl::float64_t>::createFromYawPitchRoll(-0.22, 0.18, 0.41);
 		static inline const float64_t3 MovedTargetPosition = float64_t3(-1.5, 0.5, 2.25);
 		static inline const quaternion<float64_t> MovedTargetOrientation =
-			hlsl::math::quaternion<hlsl::float64_t>::createFromEulerAnglesXYZ(-0.12, 0.35, 0.27);
+			hlsl::math::quaternion<hlsl::float64_t>::createFromYawPitchRoll(0.35, -0.12, 0.27);
 		static inline const float64_t3 OrbitWorldOffset = float64_t3(4.0, -1.5, 2.0);
 		static inline const float64_t3 FreeWorldOffset = float64_t3(5.0, -2.0, 1.5);
 		static constexpr double OrbitRecaptureDeltaDeg = 18.0;
@@ -1172,7 +1172,7 @@
 				const auto pos = gimbal.getPosition();
 				const auto orientation = gimbal.getOrientation();
 				const auto basis = gimbal.getBasis();
-				const auto eulerDeg = CCameraMathUtilities::getCameraOrientationEulerDegrees(gimbal.getOrientation());
+				const auto eulerDeg = CCameraMathUtilities::getPitchYawRollDegrees(gimbal.getOrientation());
 				std::ostringstream oss;
 				oss << std::fixed << std::setprecision(6)
 					<< "Scripted check runner baseline smoke failed."

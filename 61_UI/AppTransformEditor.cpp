@@ -85,10 +85,12 @@ void App::TransformEditorContents()
 
 	auto transformState = nbl::ui::extractRigidTransformComponentsOrDefault(imguizmoModel.outTRS);
 
-	float32_t3 matrixRotation = CCameraMathUtilities::getQuaternionEulerDegrees(transformState.orientation);
+	float32_t3 matrixRotation = CCameraMathUtilities::getPitchYawRollDegrees(transformState.orientation);
 	ImGui::InputFloat3("Tr", &transformState.translation[0], "%.3f");
 	ImGui::InputFloat3("Rt", &matrixRotation[0], "%.3f");
 	ImGui::InputFloat3("Sc", &transformState.scale[0], "%.3f");
+	// a negative scale would mirror the transform, and a mirror cannot be decomposed back into a rotation next frame
+	transformState.scale = hlsl::max(transformState.scale, float32_t3(SCameraAppTransformEditorUiDefaults::MinScale));
 
 	imguizmoModel.outTRS = nbl::ui::composeRigidTransform(
 		transformState.translation,

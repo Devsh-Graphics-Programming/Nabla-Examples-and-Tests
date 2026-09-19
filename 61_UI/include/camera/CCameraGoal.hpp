@@ -21,6 +21,37 @@
 using namespace nbl;
 using namespace nbl::ext::cameras;
 
+/// @brief How far apart two poses are: the position distance and the angle between the orientations.
+template<typename T>
+struct SCameraPoseDelta
+{
+    T position = T(0);
+    T rotationDeg = T(0);
+};
+
+template<typename T>
+inline bool tryComputePoseDelta(
+    const hlsl::vector<T, 3>& lhsPosition,
+    const hlsl::math::quaternion<T>& lhsOrientation,
+    const hlsl::vector<T, 3>& rhsPosition,
+    const hlsl::math::quaternion<T>& rhsOrientation,
+    SCameraPoseDelta<T>& outDelta)
+{
+    outDelta = {};
+
+    const auto lhsNormalized = hlsl::normalize(lhsOrientation);
+    const auto rhsNormalized = hlsl::normalize(rhsOrientation);
+    if (!CCameraMathUtilities::isFiniteVec3(lhsPosition) || !CCameraMathUtilities::isFiniteVec3(rhsPosition) ||
+        !CCameraMathUtilities::isFiniteQuaternion(lhsNormalized) || !CCameraMathUtilities::isFiniteQuaternion(rhsNormalized))
+    {
+        return false;
+    }
+
+    outDelta.position = hlsl::length(lhsPosition - rhsPosition);
+    outDelta.rotationDeg = CCameraMathUtilities::getQuaternionAngularDistanceDegrees(lhsNormalized, rhsNormalized);
+    return CCameraMathUtilities::isFiniteScalar(outDelta.position) && CCameraMathUtilities::isFiniteScalar(outDelta.rotationDeg);
+}
+
 /// @brief Typed transport object for camera state used by capture, comparison, presets, and playback.
 struct CCameraGoal : SCameraRigPose
 {
@@ -254,7 +285,7 @@ public:
         const double posEps, const double rotEpsDeg, const double scalarEps)
     {
         SCameraPoseDelta<hlsl::float64_t> poseDelta = {};
-        if (!CCameraMathUtilities::tryComputePoseDelta(actual.position, actual.orientation, expected.position, expected.orientation, poseDelta))
+        if (!tryComputePoseDelta(actual.position, actual.orientation, expected.position, expected.orientation, poseDelta))
             return false;
         if (poseDelta.position > posEps || poseDelta.rotationDeg > rotEpsDeg)
             return false;
@@ -304,7 +335,7 @@ public:
     {
         std::ostringstream oss;
         SCameraPoseDelta<hlsl::float64_t> poseDelta = {};
-        const bool hasPoseDelta = CCameraMathUtilities::tryComputePoseDelta(actual.position, actual.orientation, expected.position, expected.orientation, poseDelta);
+        const bool hasPoseDelta = tryComputePoseDelta(actual.position, actual.orientation, expected.position, expected.orientation, poseDelta);
         const auto currentOrientation = hlsl::normalize(actual.orientation);
         const auto expectedOrientation = hlsl::normalize(expected.orientation);
         oss << "pos_delta=" << (hasPoseDelta ? poseDelta.position : std::numeric_limits<double>::quiet_NaN())

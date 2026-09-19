@@ -228,6 +228,8 @@ struct SCameraAppTransformEditorUiDefaults final
 	static inline constexpr float32_t4x4 IdentityTransform = float32_t4x4(1.0f);
 	static inline constexpr float32_t3 IdentityScale = float32_t3(1.0f);
 	static inline constexpr float32_t3 ZeroRotation = float32_t3(0.0f);
+	// the floor ImGuizmo applies to its own scale handle
+	static inline constexpr float MinScale = 0.001f;
 };
 
 struct SCameraAppCliRuntimeState final

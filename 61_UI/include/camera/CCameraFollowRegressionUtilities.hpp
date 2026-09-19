@@ -12,6 +12,7 @@
 #include <string>
 
 #include "CCameraFollowUtilities.hpp"
+#include "SCameraToolingThresholds.hpp"
 
 using namespace nbl;
 using namespace nbl::ext::cameras;

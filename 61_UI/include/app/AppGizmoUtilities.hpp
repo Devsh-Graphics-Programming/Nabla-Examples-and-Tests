@@ -26,12 +26,28 @@ inline ImGuizmoModelM16InOut makeImGuizmoModel(const float32_t4x4& engineTransfo
     };
 }
 
-inline SRigidTransformComponents<hlsl::float32_t> extractRigidTransformComponentsOrDefault(const float32_t4x4& transform)
+/// @brief Translation, rotation and scale of the transform shown in the transform editor.
+struct STransformEditorComponents
 {
-    SRigidTransformComponents<hlsl::float32_t> components = {};
+    float32_t3 translation = float32_t3(0.0f);
+    hlsl::math::quaternion<hlsl::float32_t> orientation = hlsl::math::quaternion<hlsl::float32_t>::identity();
+    float32_t3 scale = SCameraAppTransformEditorUiDefaults::IdentityScale;
+};
+
+inline STransformEditorComponents extractRigidTransformComponentsOrDefault(const float32_t4x4& transform)
+{
+    STransformEditorComponents components = {};
     // `transform` comes straight out of ImGuizmo, see `imguizmoTransformToEngine`
-    if (CCameraMathUtilities::tryExtractRigidTransformComponents(hlsl::transpose(transform), components))
+    const auto engineTransform = hlsl::transpose(transform);
+    if (CCameraMathUtilities::tryExtractPositionAndQuaternionFromTransform(engineTransform, components.translation, components.orientation))
+    {
+        // the extraction divides the scale out of the basis columns, so the scale is their lengths
+        components.scale = float32_t3(
+            hlsl::length(float32_t3(engineTransform[0].x, engineTransform[1].x, engineTransform[2].x)),
+            hlsl::length(float32_t3(engineTransform[0].y, engineTransform[1].y, engineTransform[2].y)),
+            hlsl::length(float32_t3(engineTransform[0].z, engineTransform[1].z, engineTransform[2].z)));
         return components;
+    }
 
     components.translation = float32_t3(transform[3].x, transform[3].y, transform[3].z);
     components.orientation = hlsl::math::quaternion<hlsl::float32_t>::identity();
@@ -39,6 +55,7 @@ inline SRigidTransformComponents<hlsl::float32_t> extractRigidTransformComponent
     return components;
 }
 
+/// @brief `eulerDegrees` is (pitch, yaw, roll), the layout `CCameraMathUtilities::getPitchYawRollDegrees` returns.
 inline float32_t4x4 composeRigidTransform(
     const hlsl::float32_t3& translation,
     const hlsl::float32_t3& eulerDegrees,
@@ -47,7 +64,7 @@ inline float32_t4x4 composeRigidTransform(
     // the result is handed back to ImGuizmo, so it goes back into its layout
     return hlsl::transpose(CCameraMathUtilities::composeTransformMatrix(
         translation,
-        hlsl::math::quaternion<hlsl::float32_t>::createFromEulerAnglesXYZ(hlsl::radians(eulerDegrees.x), hlsl::radians(eulerDegrees.y), hlsl::radians(eulerDegrees.z)),
+        hlsl::math::quaternion<hlsl::float32_t>::createFromYawPitchRoll(hlsl::radians(eulerDegrees.y), hlsl::radians(eulerDegrees.x), hlsl::radians(eulerDegrees.z)),
         scale));
 }
 

@@ -33,7 +33,7 @@ nbl::hlsl::float32_t4x4 composeScriptedImguizmoTransform(
 {
     return nbl::ext::cameras::CCameraMathUtilities::composeTransformMatrix(
         nbl::hlsl::float32_t3(translation[0], translation[1], translation[2]),
-        hlsl::math::quaternion<hlsl::float32_t>::createFromEulerAnglesXYZ(hlsl::radians(rotationDeg[0]), hlsl::radians(rotationDeg[1]), hlsl::radians(rotationDeg[2])),
+        hlsl::math::quaternion<hlsl::float32_t>::createFromYawPitchRoll(hlsl::radians(rotationDeg[1]), hlsl::radians(rotationDeg[0]), hlsl::radians(rotationDeg[2])),
         nbl::hlsl::float32_t3(scale[0], scale[1], scale[2]));
 }
 

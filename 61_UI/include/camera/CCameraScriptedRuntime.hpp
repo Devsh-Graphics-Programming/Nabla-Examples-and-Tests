@@ -16,6 +16,7 @@
 
 #include "CCameraGoal.hpp"
 #include "CCameraFollowRegressionUtilities.hpp"
+#include "SCameraToolingThresholds.hpp"
 #include "nbl/ext/Cameras/SCameraControls.hpp"
 #include "nbl/ui/KeyCodes.h"
 

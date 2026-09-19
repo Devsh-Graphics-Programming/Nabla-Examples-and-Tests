@@ -69,7 +69,7 @@ struct CCameraConstraintUtilities final
 
         const auto& gimbal = camera->getGimbal();
         const auto pos = gimbal.getPosition();
-        const auto eulerDeg = nbl::ext::cameras::CCameraMathUtilities::getCameraOrientationEulerDegrees(gimbal.getOrientation());
+        const auto eulerDeg = nbl::ext::cameras::CCameraMathUtilities::getPitchYawRollDegrees(gimbal.getOrientation());
 
         auto clamped = eulerDeg;
         if (constraints.clampPitch)
@@ -84,7 +84,7 @@ struct CCameraConstraintUtilities final
 
         CCameraPreset preset;
         preset.goal.position = pos;
-        preset.goal.orientation = nbl::ext::cameras::CCameraMathUtilities::makeQuaternionFromEulerDegreesYXZ(clamped);
+        preset.goal.orientation = hlsl::math::quaternion<hlsl::float64_t>::createFromYawPitchRoll(hlsl::radians(clamped.y), hlsl::radians(clamped.x), hlsl::radians(clamped.z));
         return CCameraPresetFlowUtilities::applyPreset(solver, camera, preset);
     }
 };

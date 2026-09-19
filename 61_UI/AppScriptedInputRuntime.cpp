@@ -7,7 +7,7 @@ void App::logScriptedCameraPose(const char* label, ICamera* camera) const
 
 	const auto& gimbal = camera->getGimbal();
 	const auto position = gimbal.getPosition();
-	const auto euler = CCameraMathUtilities::getCameraOrientationEulerDegrees(gimbal.getOrientation());
+	const auto euler = CCameraMathUtilities::getPitchYawRollDegrees(gimbal.getOrientation());
 	m_logger->log(
 		"[script] %s gimbal pos=(%.3f, %.3f, %.3f) euler_deg=(%.3f, %.3f, %.3f)",
 		ILogger::ELL_INFO,
@@ -277,15 +277,16 @@ void App::applyScriptedImguizmoInput(SScriptedFrameInputState& scriptedFrame, co
 	SCameraControls controls = {};
 	for (const auto& deltaTransform : scriptedFrame.frameEvents.imguizmo)
 	{
-		SRigidTransformComponents<float64_t> components = {};
-		if (!CCameraMathUtilities::tryExtractRigidTransformComponents<float64_t>(
-				getCastedMatrix<float64_t>(deltaTransform), components))
+		float64_t3 translation = float64_t3(0.0);
+		hlsl::math::quaternion<float64_t> orientation = hlsl::math::quaternion<float64_t>::identity();
+		if (!CCameraMathUtilities::tryExtractPositionAndQuaternionFromTransform<float64_t>(
+				getCastedMatrix<float64_t>(deltaTransform), translation, orientation))
 		{
 			continue;
 		}
 
-		controls.translate += components.translation;
-		controls.rotate += CCameraMathUtilities::getCameraOrientationEulerRadians<float64_t>(components.orientation);
+		controls.translate += translation;
+		controls.rotate += CCameraMathUtilities::getPitchYawRollRadians<float64_t>(orientation);
 	}
 
 	controls = controls.masked(camera->getAcceptedControls());

@@ -13,6 +13,7 @@
 #include <string_view>
 
 #include "CCameraGoalSolver.hpp"
+#include "SCameraToolingThresholds.hpp"
 #include "nbl/ext/Cameras/CCameraKindUtilities.hpp"
 
 using namespace nbl;

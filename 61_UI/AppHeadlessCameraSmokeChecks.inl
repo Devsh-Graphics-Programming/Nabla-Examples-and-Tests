@@ -355,7 +355,7 @@
 					state,
 					state.fpsCamera,
 					hlsl::float64_t3(2.5, -0.75, 4.0),
-					CCameraMathUtilities::makeQuaternionFromEulerDegreesYXZ(hlsl::float64_t3(-20.0, 35.0, 0.0)),
+					hlsl::math::quaternion<hlsl::float64_t>::createFromYawPitchRoll(hlsl::radians(35.0), hlsl::radians(-20.0), hlsl::radians(0.0)),
 					"FPS",
 					outError))
 			{
@@ -369,7 +369,7 @@
 					state,
 					state.freeCamera,
 					hlsl::float64_t3(-1.25, 0.5, 3.5),
-					CCameraMathUtilities::makeQuaternionFromEulerDegreesYXZ(hlsl::float64_t3(15.0, 45.0, 20.0)),
+					hlsl::math::quaternion<hlsl::float64_t>::createFromYawPitchRoll(hlsl::radians(45.0), hlsl::radians(15.0), hlsl::radians(20.0)),
 					"Free",
 					outError))
 			{
@@ -411,8 +411,8 @@
 				desiredState.angles += hlsl::float64_t2(0.35, 0.2);
 				desiredState.angles.y = std::clamp(
 					desiredState.angles.y,
-					-static_cast<double>(nbl::ext::cameras::SCameraViewRigDefaults::ArcballPitchLimitRad),
-					static_cast<double>(nbl::ext::cameras::SCameraViewRigDefaults::ArcballPitchLimitRad));
+					CArcballCamera::MinPitch,
+					CArcballCamera::MaxPitch);
 			}))
 		{
 			return false;
@@ -423,8 +423,8 @@
 				desiredState.angles += hlsl::float64_t2(-0.4, 0.18);
 				desiredState.angles.y = std::clamp(
 					desiredState.angles.y,
-					-static_cast<double>(nbl::ext::cameras::SCameraViewRigDefaults::TurntablePitchLimitRad),
-					static_cast<double>(nbl::ext::cameras::SCameraViewRigDefaults::TurntablePitchLimitRad));
+					CTurntableCamera::MinPitch,
+					CTurntableCamera::MaxPitch);
 			}))
 		{
 			return false;
@@ -434,7 +434,7 @@
 			{
 				desiredState.angles = hlsl::float64_t2(
 					desiredState.angles.x + 0.6,
-					nbl::ext::cameras::SCameraViewRigDefaults::TopDownPitchRad);
+					CTopDownCamera::TopDownPitch);
 			}))
 		{
 			return false;
@@ -443,8 +443,8 @@
 		if (!verifySphericalReference(state.isometricCamera, "Isometric", [&](nbl::ext::cameras::STargetOrbit& desiredState)
 			{
 				desiredState.angles = hlsl::float64_t2(
-					nbl::ext::cameras::SCameraViewRigDefaults::IsometricYawRad,
-					nbl::ext::cameras::SCameraViewRigDefaults::IsometricPitchRad);
+					CIsometricCamera::IsoYaw,
+					CIsometricCamera::IsoPitch);
 			}))
 		{
 			return false;
@@ -455,8 +455,8 @@
 				desiredState.angles += hlsl::float64_t2(0.3, 0.15);
 				desiredState.angles.y = std::clamp(
 					desiredState.angles.y,
-					static_cast<double>(nbl::ext::cameras::SCameraViewRigDefaults::ChaseMinPitchRad),
-					static_cast<double>(nbl::ext::cameras::SCameraViewRigDefaults::ChaseMaxPitchRad));
+					CChaseCamera::MinPitch,
+					CChaseCamera::MaxPitch);
 			}))
 		{
 			return false;
@@ -467,8 +467,8 @@
 				desiredState.angles += hlsl::float64_t2(-0.3, -0.22);
 				desiredState.angles.y = std::clamp(
 					desiredState.angles.y,
-					-static_cast<double>(nbl::ext::cameras::SCameraViewRigDefaults::DollyPitchLimitRad),
-					static_cast<double>(nbl::ext::cameras::SCameraViewRigDefaults::DollyPitchLimitRad));
+					CDollyCamera::MinPitch,
+					CDollyCamera::MaxPitch);
 			}))
 		{
 			return false;
@@ -1192,7 +1192,7 @@
 				return false;
 			}
 
-			const double customBaselineDistance = CCameraMathUtilities::getPathDistance(customBaselinePathState.u, customBaselinePathState.v);
+			const double customBaselineDistance = hlsl::length(hlsl::float64_t2(customBaselinePathState.u, customBaselinePathState.v));
 			if (customBaselineDistance + CameraTinyScalarEpsilon < resolvedPathLimits.minDistance ||
 				customBaselineDistance - CameraTinyScalarEpsilon > resolvedPathLimits.maxDistance)
 			{
@@ -1354,7 +1354,11 @@
 			}
 
 			CameraPreset pitchPreset = state.initialPresets.free.value();
-			pitchPreset.goal.orientation = CCameraMathUtilities::makeQuaternionFromEulerDegreesYXZ(SCameraSmokeManipulationDefaults::FreePitchClampSourceDeg);
+			const auto& pitchClampSourceDeg = SCameraSmokeManipulationDefaults::FreePitchClampSourceDeg;
+			pitchPreset.goal.orientation = hlsl::math::quaternion<hlsl::float64_t>::createFromYawPitchRoll(
+				hlsl::radians(pitchClampSourceDeg.y),
+				hlsl::radians(pitchClampSourceDeg.x),
+				hlsl::radians(pitchClampSourceDeg.z));
 			const auto pitchResult = CCameraPresetFlowUtilities::applyPresetDetailed(state.goalSolver, state.freeCamera, pitchPreset);
 			if (!pitchResult.succeeded())
 			{
@@ -1374,7 +1378,7 @@
 				return false;
 			}
 
-			const auto freeEulerDeg = CCameraMathUtilities::getCameraOrientationEulerDegrees(state.freeCamera->getGimbal().getOrientation());
+			const auto freeEulerDeg = CCameraMathUtilities::getPitchYawRollDegrees(state.freeCamera->getGimbal().getOrientation());
 			if (hlsl::abs(static_cast<double>(freeEulerDeg.x - SCameraSmokeManipulationDefaults::PitchMaxDeg)) > SCameraSmokeManipulationDefaults::PitchAppliedToleranceDeg)
 			{
 				outError = "Camera manipulation utilities smoke produced wrong clamped Free camera pitch.";

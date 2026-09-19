@@ -16,8 +16,10 @@
 #include <string_view>
 #include <vector>
 
+#include "nbl/ext/Cameras/CArcballCamera.hpp"
 #include "nbl/ext/Cameras/CCameraMathUtilities.hpp"
 #include "CCameraKeyframeTrack.hpp"
+#include "SCameraToolingThresholds.hpp"
 #include "nbl/ext/Cameras/CCameraPathUtilities.hpp"
 #include "nbl/ext/Cameras/CPlanarProjection.hpp"
 
@@ -458,9 +460,10 @@ inline bool CCameraSequenceScriptUtilities::buildSequenceKeyframePreset(const CC
 
     if (delta.hasRotationEulerDegOffset)
     {
+        const auto offsetDeg = hlsl::_static_cast<hlsl::float64_t3>(delta.rotationEulerDegOffset);
         goal.orientation = hlsl::normalize(
-            goal.orientation * CCameraMathUtilities::makeQuaternionFromEulerDegreesYXZ(
-                hlsl::_static_cast<hlsl::float64_t3>(delta.rotationEulerDegOffset)));
+            goal.orientation * hlsl::math::quaternion<hlsl::float64_t>::createFromYawPitchRoll(
+                hlsl::radians(offsetDeg.y), hlsl::radians(offsetDeg.x), hlsl::radians(offsetDeg.z)));
     }
 
     if (delta.hasTargetOffset)
@@ -489,8 +492,8 @@ inline bool CCameraSequenceScriptUtilities::buildSequenceKeyframePreset(const CC
         {
             goal.orbitUv.y = std::clamp(
                 goal.orbitUv.y + delta.orbitDelta.uvDeltaRad.y,
-                -SCameraViewRigDefaults::ArcballPitchLimitRad,
-                SCameraViewRigDefaults::ArcballPitchLimitRad);
+                CArcballCamera::MinPitch,
+                CArcballCamera::MaxPitch);
         }
         if (delta.orbitDelta.hasDistance)
             goal.orbitDistance += delta.orbitDelta.distanceDelta;
@@ -597,8 +600,9 @@ inline bool CCameraSequenceScriptUtilities::buildSequenceTrackedTargetPoseFromRe
         outPose.position = authored.absolutePosition;
     if (authored.hasAbsoluteRotationEulerDeg)
     {
-        outPose.orientation = CCameraMathUtilities::makeQuaternionFromEulerDegreesYXZ(
-            hlsl::_static_cast<hlsl::float64_t3>(authored.absoluteRotationEulerDeg));
+        const auto rotationDeg = hlsl::_static_cast<hlsl::float64_t3>(authored.absoluteRotationEulerDeg);
+        outPose.orientation = hlsl::math::quaternion<hlsl::float64_t>::createFromYawPitchRoll(
+            hlsl::radians(rotationDeg.y), hlsl::radians(rotationDeg.x), hlsl::radians(rotationDeg.z));
     }
 
     if (authored.hasDelta)
@@ -607,9 +611,10 @@ inline bool CCameraSequenceScriptUtilities::buildSequenceTrackedTargetPoseFromRe
             outPose.position += authored.delta.positionOffset;
         if (authored.delta.hasRotationEulerDegOffset)
         {
+            const auto offsetDeg = hlsl::_static_cast<hlsl::float64_t3>(authored.delta.rotationEulerDegOffset);
             outPose.orientation = hlsl::normalize(
-                outPose.orientation * CCameraMathUtilities::makeQuaternionFromEulerDegreesYXZ(
-                    hlsl::_static_cast<hlsl::float64_t3>(authored.delta.rotationEulerDegOffset)));
+                outPose.orientation * hlsl::math::quaternion<hlsl::float64_t>::createFromYawPitchRoll(
+                    hlsl::radians(offsetDeg.y), hlsl::radians(offsetDeg.x), hlsl::radians(offsetDeg.z)));
         }
     }
 

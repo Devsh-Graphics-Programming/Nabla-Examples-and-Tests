@@ -14,6 +14,7 @@
 #include "CCameraKeyframeTrack.hpp"
 #include "nbl/ext/Cameras/CCameraMathUtilities.hpp"
 #include "CCameraPresetFlow.hpp"
+#include "SCameraToolingThresholds.hpp"
 #include "nbl/ext/Cameras/ICamera.hpp"
 #include "nbl/ext/Cameras/SCameraControls.hpp"
 
@@ -51,7 +52,7 @@ public:
         const auto& gimbal = camera->getGimbal();
         const auto afterPosition = gimbal.getPosition();
         const auto afterOrientation = hlsl::normalize(gimbal.getOrientation());
-        return CCameraMathUtilities::tryComputePoseDelta(afterPosition, afterOrientation, beforePosition, beforeOrientation, outDelta);
+        return tryComputePoseDelta(afterPosition, afterOrientation, beforePosition, beforeOrientation, outDelta);
     }
 
     /// @brief Manipulate a camera and report how far its pose moved in position and Euler-angle terms.

@@ -12,6 +12,7 @@
 #include <vector>
 
 #include "CCameraGoal.hpp"
+#include "SCameraToolingThresholds.hpp"
 #include "nbl/ext/Cameras/SCameraControls.hpp"
 #include "nbl/core/util/bitflag.h"
 #include <limits>
@@ -445,7 +446,7 @@ inline bool CCameraGoalSolver::computePoseMismatch(ICamera* camera, const CCamer
 
     const CCameraGimbal& gimbal = camera->getGimbal();
     SCameraPoseDelta<hlsl::float64_t> poseDelta = {};
-    if (!CCameraMathUtilities::tryComputePoseDelta<hlsl::float64_t>(gimbal.getPosition(), gimbal.getOrientation(), target.position, target.orientation, poseDelta))
+    if (!tryComputePoseDelta<hlsl::float64_t>(gimbal.getPosition(), gimbal.getOrientation(), target.position, target.orientation, poseDelta))
         return false;
 
     outPositionDelta = poseDelta.position;
@@ -583,15 +584,15 @@ inline bool CCameraGoalSolver::buildFreeControls(ICamera* camera, const CCameraG
         case ICamera::CameraKind::FPS:
         {
             // an FPS rig holds roll at zero, so only the pitch and yaw difference is asked for
-            const auto current = CCameraMathUtilities::getPitchYawFromOrientation(gimbal.getOrientation());
-            const auto wanted = CCameraMathUtilities::getPitchYawFromOrientation(target.orientation);
+            const auto current = CCameraMathUtilities::getPitchYawRollRadians(gimbal.getOrientation());
+            const auto wanted = CCameraMathUtilities::getPitchYawRollRadians(target.orientation);
             out.rotate.x = deadbandAngle(CCameraMathUtilities::wrapAngleRad<hlsl::float64_t>(wanted.x - current.x), AngularToleranceDeg);
             out.rotate.y = deadbandAngle(CCameraMathUtilities::wrapAngleRad<hlsl::float64_t>(wanted.y - current.y), AngularToleranceDeg);
         } break;
 
         case ICamera::CameraKind::Free:
         {
-            const auto euler = CCameraMathUtilities::getOrientationDeltaEulerRadiansYXZ<hlsl::float64_t>(gimbal.getOrientation(), target.orientation);
+            const auto euler = CCameraMathUtilities::getPitchYawRollDeltaRadians<hlsl::float64_t>(gimbal.getOrientation(), target.orientation);
             out.rotate.x = deadbandAngle(euler.x, AngularToleranceDeg);
             out.rotate.y = deadbandAngle(euler.y, AngularToleranceDeg);
             out.rotate.z = deadbandAngle(euler.z, AngularToleranceDeg);
