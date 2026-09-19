@@ -175,7 +175,7 @@ inline bool tryBuildWindowBindingMatrices(
         return false;
 
     auto& projection = projections[projectionIx];
-    nbl::ext::cameras::CCameraProjectionUtilities::syncDynamicPerspectiveProjection(camera, projection);
+    CCameraProjectionUtilities::syncDynamicPerspectiveProjection(camera, projection);
     projection.update(binding.leftHandedProjection, binding.aspectRatio);
 
     outState.camera = camera;

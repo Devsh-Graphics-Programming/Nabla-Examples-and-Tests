@@ -29,7 +29,7 @@
 #include "camera/CCameraGoalAnalysis.hpp"
 #include "camera/CCameraGoalSolver.hpp"
 #include "camera/CCameraPresentationUtilities.hpp"
-#include "nbl/ext/Cameras/CCameraProjectionUtilities.hpp"
+#include "camera/CCameraProjectionUtilities.hpp"
 #include "nbl/ext/Cameras/CCameraKindUtilities.hpp"
 #include "camera/CCameraFollowUtilities.hpp"
 #include "camera/CCameraFollowRegressionUtilities.hpp"
@@ -42,7 +42,7 @@
 #include "camera/CCameraViewportOverlayUtilities.hpp"
 #include "camera/CCameraTextUtilities.hpp"
 #include "nbl/ext/Cameras/SCameraControls.hpp"
-#include "nbl/ext/Cameras/CInputCodeNames.hpp"
+#include "camera/CInputCodeNames.hpp"
 #include "nbl/ext/Cameras/CCameraMouseKeyboardController.hpp"
 #include "nbl/ext/Cameras/CCameraMouseKeyboardPresets.hpp"
 
@@ -108,10 +108,6 @@ using nbl::ui::SKeyboardEvent;
 using nbl::ui::SMouseEvent;
 using nbl::ui::IWindow;
 using nbl::ui::IWindowWin32;
-using nbl::ext::cameras::stringToKeyCode;
-using nbl::ext::cameras::keyCodeToString;
-using nbl::ext::cameras::stringToMouseButton;
-using nbl::ext::cameras::mouseButtonToString;
 using nbl::video::CSurfaceVulkanWin32;
 using nbl::video::CSmoothResizeSurface;
 using nbl::video::IDescriptorPool;
@@ -197,6 +193,5 @@ using nbl::ui::CCameraViewportOverlayUtilities;
 using nbl::this_example::getCastedMatrix;
 using nbl::hlsl::mul;
 using nbl::hlsl::math::quaternion;
-using nbl::ext::cameras::CCameraProjectionUtilities;
 
 #endif // _NBL_THIS_EXAMPLE_COMMON_H_INCLUDED_

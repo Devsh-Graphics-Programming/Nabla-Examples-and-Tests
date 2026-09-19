@@ -12,7 +12,6 @@
 #include <vector>
 
 #include "CCameraGoal.hpp"
-#include "nbl/ext/Cameras/CCameraTargetRelativeUtilities.hpp"
 #include "nbl/ext/Cameras/SCameraControls.hpp"
 #include "nbl/core/util/bitflag.h"
 #include <limits>
@@ -501,13 +500,12 @@ inline bool CCameraGoalSolver::buildTargetRelativeControls(
     const STargetOrbit& goal,
     SCameraControls& out) const
 {
-    const auto delta = CCameraTargetRelativeUtilities::buildTargetRelativeDelta(sphericalState, goal);
-
-    // `orbitVector()` is already laid out like `rotate`: pitch in x, yaw in y
-    const auto orbit = delta.orbitVector();
-    out.rotate.x = deadbandAngle(orbit.x, SCameraToolingThresholds::DefaultAngularToleranceDeg);
-    out.rotate.y = deadbandAngle(orbit.y, SCameraToolingThresholds::DefaultAngularToleranceDeg);
-    out.distance = deadbandScalar(delta.distance, SCameraToolingThresholds::ScalarTolerance);
+    // orbit angles are (yaw, pitch) while `rotate` is laid out as pitch in x, yaw in y
+    const auto yawDelta = CCameraMathUtilities::wrapAngleRad(goal.angles.x - sphericalState.orbitUv.x);
+    const auto pitchDelta = CCameraMathUtilities::wrapAngleRad(goal.angles.y - sphericalState.orbitUv.y);
+    out.rotate.x = deadbandAngle(pitchDelta, SCameraToolingThresholds::DefaultAngularToleranceDeg);
+    out.rotate.y = deadbandAngle(yawDelta, SCameraToolingThresholds::DefaultAngularToleranceDeg);
+    out.distance = deadbandScalar(goal.distance - static_cast<hlsl::float64_t>(sphericalState.distance), SCameraToolingThresholds::ScalarTolerance);
 
     return out.nonZeroAxes() != 0u;
 }

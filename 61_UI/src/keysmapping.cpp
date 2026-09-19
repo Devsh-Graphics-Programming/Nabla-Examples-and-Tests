@@ -18,7 +18,7 @@ const std::vector<ui::E_KEY_CODE>& getSelectableKeyCodes()
         {
             const auto key = static_cast<ui::E_KEY_CODE>(code);
             // a key with no stable name cannot be round-tripped through a saved binding, so it is not offered
-            if (keyCodeToString(key) != "NONE")
+            if (CInputCodeNames::keyCodeToString(key) != "NONE")
                 out.push_back(key);
         }
         return out;
@@ -30,14 +30,14 @@ std::string getKeyLabel(const ui::E_KEY_CODE key)
 {
     if (key == ui::EKC_NONE)
         return "none";
-    return std::string(keyCodeToString(key));
+    return std::string(CInputCodeNames::keyCodeToString(key));
 }
 
 std::string getGateLabel(const std::optional<ui::E_MOUSE_BUTTON>& gate)
 {
     if (!gate.has_value())
         return "always";
-    return std::string(mouseButtonToString(gate.value()));
+    return std::string(CInputCodeNames::mouseButtonToString(gate.value()));
 }
 
 bool drawKeyPicker(const char* id, ui::E_KEY_CODE& key)
@@ -83,7 +83,7 @@ bool drawGatePicker(const char* id, std::optional<ui::E_MOUSE_BUTTON>& gate)
         for (const auto button : Buttons)
         {
             const bool selected = gate.has_value() && gate.value() == button;
-            if (ImGui::Selectable(std::string(mouseButtonToString(button)).c_str(), selected))
+            if (ImGui::Selectable(std::string(CInputCodeNames::mouseButtonToString(button)).c_str(), selected))
             {
                 gate = button;
                 changed = true;

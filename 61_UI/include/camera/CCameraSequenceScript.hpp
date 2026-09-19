@@ -19,7 +19,6 @@
 #include "nbl/ext/Cameras/CCameraMathUtilities.hpp"
 #include "CCameraKeyframeTrack.hpp"
 #include "nbl/ext/Cameras/CCameraPathUtilities.hpp"
-#include "nbl/ext/Cameras/CCameraTargetRelativeUtilities.hpp"
 #include "nbl/ext/Cameras/IPlanarProjection.hpp"
 
 using namespace nbl;
@@ -490,8 +489,8 @@ inline bool CCameraSequenceScriptUtilities::buildSequenceKeyframePreset(const CC
         {
             goal.orbitUv.y = std::clamp(
                 goal.orbitUv.y + delta.orbitDelta.uvDeltaRad.y,
-                -SCameraTargetRelativeRigDefaults::ArcballPitchLimitRad,
-                SCameraTargetRelativeRigDefaults::ArcballPitchLimitRad);
+                -SCameraViewRigDefaults::ArcballPitchLimitRad,
+                SCameraViewRigDefaults::ArcballPitchLimitRad);
         }
         if (delta.orbitDelta.hasDistance)
             goal.orbitDistance += delta.orbitDelta.distanceDelta;

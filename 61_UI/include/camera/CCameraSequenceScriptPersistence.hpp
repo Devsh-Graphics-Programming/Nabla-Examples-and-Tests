@@ -19,7 +19,7 @@
 #include <array>
 #include <type_traits>
 #include "CCameraJsonPersistenceUtilities.hpp"
-#include "nbl/ext/Cameras/CFileUtilities.hpp"
+#include "CFileUtilities.hpp"
 #include "nlohmann/json.hpp"
 
 using namespace nbl;

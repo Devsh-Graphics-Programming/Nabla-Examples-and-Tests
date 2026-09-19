@@ -48,7 +48,9 @@ preserving.
 
 There is no namespace. These types sit at global scope, like `app/AppTypes.hpp` and the rest of the example's
 headers. Each file opens with `using namespace nbl::ext::cameras;` so the extension's types stay usable
-unqualified, which is what keeps the diff against the extension version small.
+unqualified, which is what keeps the diff against the extension version small. The three later arrivals
+(`CCameraProjectionUtilities`, `CFileUtilities`, `CInputCodeNames`) are small enough that they spell out `nbl::`
+instead, so they do not depend on another header having issued those directives first.
 
 The layer is header-only. The eight `.cpp` files were merged into their headers, so each unit is one file.
 
@@ -92,6 +94,10 @@ Things worth a second look while reviewing, none of them confirmed:
 `CCameraScriptVisualDebugOverlayUtilities`, `CCameraViewportOverlayUtilities`
 
 The last three came from `examples_tests/common/include/camera/`, where they also had only this example as a user.
+
+**Small helpers, moved later for the same reason** — `CCameraProjectionUtilities` (pushes a dynamic-perspective FOV
+into a projection entry), `CFileUtilities` (whole-file read/write through `ISystem`), `CInputCodeNames` (stable
+string names for key codes and mouse buttons, used by the binding editor and the scripted input files)
 
 Files already local to this example before the move, and not part of it: `CCameraConstraintUtilities`,
 `CCameraScriptedActionUtilities`, `CCameraScriptedRuntimePersistence`, `CCameraSequenceScriptedBuilder`.

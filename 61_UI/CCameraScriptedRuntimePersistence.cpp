@@ -5,8 +5,8 @@
 #include <optional>
 #include <string_view>
 
-#include "nbl/ext/Cameras/CFileUtilities.hpp"
-#include "nbl/ext/Cameras/CInputCodeNames.hpp"
+#include "camera/CFileUtilities.hpp"
+#include "camera/CInputCodeNames.hpp"
 #include "nbl/ext/Cameras/CCameraMathUtilities.hpp"
 #include "nlohmann/json.hpp"
 
@@ -61,16 +61,16 @@ std::optional<CCameraScriptedInputEvent::KeyboardData::Action> parseScriptedKeyb
 
 nbl::ui::E_KEY_CODE parseScriptedKeyCode(std::string_view key)
 {
-    auto parsed = nbl::ext::cameras::stringToKeyCode(key);
+    auto parsed = CInputCodeNames::stringToKeyCode(key);
     if (parsed != nbl::ui::EKC_NONE)
         return parsed;
 
     constexpr std::string_view KeyPrefix = "KEY_";
     constexpr std::string_view EkcPrefix = "EKC_";
     if (key.starts_with(KeyPrefix))
-        parsed = nbl::ext::cameras::stringToKeyCode(key.substr(KeyPrefix.size()));
+        parsed = CInputCodeNames::stringToKeyCode(key.substr(KeyPrefix.size()));
     if (parsed == nbl::ui::EKC_NONE && key.starts_with(EkcPrefix))
-        parsed = nbl::ext::cameras::stringToKeyCode(key.substr(EkcPrefix.size()));
+        parsed = CInputCodeNames::stringToKeyCode(key.substr(EkcPrefix.size()));
     return parsed;
 }
 
@@ -78,7 +78,7 @@ std::optional<nbl::ui::E_MOUSE_BUTTON> parseScriptedMouseButton(std::string_view
 {
     auto tryParseCode = [](std::string_view code) -> std::optional<nbl::ui::E_MOUSE_BUTTON>
     {
-        const auto parsed = nbl::ext::cameras::stringToMouseButton(code);
+        const auto parsed = CInputCodeNames::stringToMouseButton(code);
         if (parsed == nbl::ui::EMB_COUNT)
             return std::nullopt;
         return parsed;
@@ -617,7 +617,7 @@ bool CCameraScriptedRuntimePersistenceUtilities::readCameraScriptedInput(std::st
 bool CCameraScriptedRuntimePersistenceUtilities::loadCameraScriptedInputFromFile(nbl::system::ISystem& system, const nbl::system::path& filePath, CCameraScriptedInputParseResult& out, std::string* error)
 {
     std::string text;
-    if (!nbl::ext::cameras::CFileUtilities::readTextFile(system, filePath, text, error, "Cannot open scripted input file."))
+    if (!CFileUtilities::readTextFile(system, filePath, text, error, "Cannot open scripted input file."))
         return false;
 
     return readCameraScriptedInput(text, out, error);

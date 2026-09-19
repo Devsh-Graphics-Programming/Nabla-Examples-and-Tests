@@ -16,7 +16,6 @@
 #include <string>
 
 #include "nbl/ext/Cameras/CCameraPathUtilities.hpp"
-#include "nbl/ext/Cameras/CCameraTargetRelativeUtilities.hpp"
 #include "nbl/ext/Cameras/ICamera.hpp"
 
 using namespace nbl;
@@ -73,30 +72,33 @@ public:
     }
 
     /// @brief Overwrite the canonical target-relative fields of a goal from prebuilt state and pose data.
+    /// @param appliedDistance distance the pose was actually built at, after clamping `orbit.distance`.
     static inline void applyCanonicalTargetRelativeGoalFields(
         CCameraGoal& goal,
         const STargetOrbit& orbit,
-        const SCameraTargetRelativePose& pose)
+        const SCameraRigPose& pose,
+        const hlsl::float64_t appliedDistance)
     {
         goal.position = pose.position;
         goal.orientation = pose.orientation;
         goal.hasTargetPosition = true;
         goal.targetPosition = orbit.target;
         goal.hasDistance = true;
-        goal.distance = static_cast<float>(pose.appliedDistance);
+        goal.distance = static_cast<float>(appliedDistance);
         goal.hasOrbitState = true;
         goal.orbitUv = orbit.angles;
-        goal.orbitDistance = static_cast<float>(pose.appliedDistance);
+        goal.orbitDistance = static_cast<float>(appliedDistance);
     }
 
     /// @brief Rebuild the canonical target-relative portion of a goal from typed target-relative state.
     static inline bool applyCanonicalTargetRelativeGoal(CCameraGoal& goal, const STargetOrbit& orbit)
     {
-        SCameraTargetRelativePose pose = {};
-        if (!CCameraMathUtilities::tryBuildPoseFromOrbit(orbit, ICamera::DefaultMinTargetDistance, ICamera::DefaultMaxTargetDistance, pose, &pose.appliedDistance))
+        SCameraRigPose pose = {};
+        hlsl::float64_t appliedDistance = ICamera::DefaultMinTargetDistance;
+        if (!CCameraMathUtilities::tryBuildPoseFromOrbit(orbit, ICamera::DefaultMinTargetDistance, ICamera::DefaultMaxTargetDistance, pose, &appliedDistance))
             return false;
 
-        applyCanonicalTargetRelativeGoalFields(goal, orbit, pose);
+        applyCanonicalTargetRelativeGoalFields(goal, orbit, pose, appliedDistance);
         return true;
     }
 
@@ -115,14 +117,11 @@ public:
         goal.targetPosition = targetPosition;
         goal.hasPathState = true;
         goal.pathState = pathState;
-        SCameraTargetRelativePose canonicalPose = {};
-        canonicalPose.position = canonicalPathState.pose.position;
-        canonicalPose.orientation = canonicalPathState.pose.orientation;
-        canonicalPose.appliedDistance = canonicalPathState.pose.appliedDistance;
         applyCanonicalTargetRelativeGoalFields(
             goal,
             canonicalPathState.targetRelative,
-            canonicalPose);
+            canonicalPathState.pose,
+            canonicalPathState.pose.appliedDistance);
         return true;
     }
 

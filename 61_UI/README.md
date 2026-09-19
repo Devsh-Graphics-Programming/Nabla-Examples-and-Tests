@@ -10,18 +10,32 @@ This README focuses on what `61_UI` adds on top of the shared layer.
 `61_UI` is used to:
 
 - exercise all current camera kinds in one visible scene
-- validate the shared input, goal, preset, playback, follow, and scripted layers
+- exercise the extension's input layer, and the goal, preset, playback, follow and scripted layers kept in [`include/camera/`](include/camera/)
 - validate `referenceFrame` behavior across all camera kinds
 - provide a manual playground for camera behavior
 - provide CI-oriented smoke and continuity coverage
 
 It does not define camera semantics.
-It consumes the shared camera API and exposes it through one concrete, testable app.
+It consumes the camera extension and exposes it through one concrete, testable app.
 
 ## What `61_UI` owns locally
 
-The shared camera layer stops at reusable camera-domain APIs.
-`61_UI` adds the local glue needed to turn that into an application:
+The camera extension owns camera semantics: the rigs, `manipulate(...)` and `setPose(...)`, control frames, the
+mouse/keyboard controller and the projections.
+
+Everything else lives in this example.
+
+[`include/camera/`](include/camera/) is a staging area for code that used to be in the extension and has this example
+as its only user. Its [README](include/camera/README.md) explains why each part moved and what has to be true before
+it goes back:
+
+- goal capture and apply, presets, keyframes, playback and their persistence
+- follow and follow regression
+- compact sequence scripts, the scripted runtime and the scripted check runner
+- small helpers: dynamic-perspective FOV sync (`CCameraProjectionUtilities`), whole-file I/O (`CFileUtilities`) and
+  key/mouse-button names (`CInputCodeNames`)
+
+The rest is the glue needed to turn that into an application:
 
 - scene setup and demo geometry
 - planar / window routing
@@ -31,16 +45,6 @@ The shared camera layer stops at reusable camera-domain APIs.
 - screenshot capture
 - runtime logging and failure reporting
 - local visual-debug presentation
-
-The shared layer owns:
-
-- camera semantics
-- follow semantics
-- compact sequence authoring
-- scripted runtime payloads
-- scripted check semantics
-
-`61_UI` owns how those pieces are presented, visualized, and driven in one sample.
 
 ## Camera set
 
@@ -67,12 +71,12 @@ These are exposed through the active planar / viewport configuration in the UI.
 
 Tracked-target rule:
 
-- the reusable tracked subject is `core::CTrackedTarget`
+- the tracked subject is `CTrackedTarget` from [`CCameraFollowUtilities.hpp`](include/camera/CCameraFollowUtilities.hpp)
 - it owns its own gimbal
 - it is not the large cone mesh
 - the rendered marker is only a visualization of the tracked-target gimbal
 
-This matters because the shared follow layer is modeled around:
+This matters because the follow layer is modeled around:
 
 - tracked-target pose
 - follow mode
@@ -91,7 +95,7 @@ The default scene uses:
 - `Chase`, `Dolly`
   with `KeepLocalOffset`
 
-Manual runtime and scripted continuity both drive the same shared follow layer.
+Manual runtime and scripted continuity both drive the same follow layer.
 
 ## Scripted assets
 
@@ -114,29 +118,24 @@ Purpose:
 
 - validate smooth frame-to-frame motion
 - validate follow lock while the tracked target moves
-- validate typed restore and replay paths against the same shared camera semantics
+- validate typed restore and replay paths against the same camera semantics
 - provide a readable visual-debug showcase
 
 The continuity asset is a compact authored camera-sequence script.
 It is no longer a giant committed frame dump.
 
-## Shared pieces consumed directly by `61_UI`
+## Extension pieces consumed by `61_UI`
 
-`61_UI` consumes the shared stack directly:
+From the camera extension:
 
+- every camera kind, through [`ICamera.hpp`](../../include/nbl/ext/Cameras/ICamera.hpp)
 - [`SCameraControls.hpp`](../../include/nbl/ext/Cameras/SCameraControls.hpp)
 - [`CCameraMouseKeyboardController.hpp`](../../include/nbl/ext/Cameras/CCameraMouseKeyboardController.hpp)
 - [`CCameraMouseKeyboardPresets.hpp`](../../include/nbl/ext/Cameras/CCameraMouseKeyboardPresets.hpp)
-- [`CCameraPresetFlow.hpp`](../../include/nbl/ext/Cameras/CCameraPresetFlow.hpp)
-- [`CCameraFollowUtilities.hpp`](../../include/nbl/ext/Cameras/CCameraFollowUtilities.hpp)
-- [`CCameraFollowRegressionUtilities.hpp`](../../include/nbl/ext/Cameras/CCameraFollowRegressionUtilities.hpp)
-- [`CCameraSequenceScript.hpp`](../../include/nbl/ext/Cameras/CCameraSequenceScript.hpp)
-- [`CCameraScriptedRuntime.hpp`](../../include/nbl/ext/Cameras/CCameraScriptedRuntime.hpp)
-- [`CCameraScriptedRuntimePersistence.hpp`](include/camera/CCameraScriptedRuntimePersistence.hpp)
-- [`CCameraSequenceScriptedBuilder.hpp`](include/camera/CCameraSequenceScriptedBuilder.hpp)
-- [`CCameraScriptedCheckRunner.hpp`](../../include/nbl/ext/Cameras/CCameraScriptedCheckRunner.hpp)
+- [`CPlanarProjection.hpp`](../../include/nbl/ext/Cameras/CPlanarProjection.hpp)
+- [`CCameraPathUtilities.hpp`](../../include/nbl/ext/Cameras/CCameraPathUtilities.hpp) and [`CCameraKindUtilities.hpp`](../../include/nbl/ext/Cameras/CCameraKindUtilities.hpp)
 
-`61_UI` does not define a private scripting model, private follow math, or private camera restore logic.
+The scripting model, follow math and camera restore logic are local, in [`include/camera/`](include/camera/).
 
 ## Reference-frame and gizmo validation
 
@@ -207,5 +206,5 @@ examples_tests/61_UI/bin/61_ui_d.exe --ci --script app_resources/cameraz_continu
 
 ## Summary
 
-`61_UI` is the app-layer harness around the shared camera API.
-It proves that the reusable stack works end-to-end in a visible scene, with shared follow, presets, scripted playback, and CI validation all going through the same underlying camera semantics.
+`61_UI` is the app-layer harness around the camera extension.
+It proves that the extension works end-to-end in a visible scene, with follow, presets, scripted playback, and CI validation all going through the same underlying camera semantics.

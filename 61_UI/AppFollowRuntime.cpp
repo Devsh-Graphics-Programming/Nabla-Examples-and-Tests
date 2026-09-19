@@ -177,7 +177,7 @@ void App::applyFollowToConfiguredCameras(const bool allowDuringScriptedInput)
 			continue;
 
 		for (auto& projection : planar->getPlanarProjections())
-			nbl::ext::cameras::CCameraProjectionUtilities::syncDynamicPerspectiveProjection(camera, projection);
+			CCameraProjectionUtilities::syncDynamicPerspectiveProjection(camera, projection);
 	}
 }
 

@@ -233,7 +233,7 @@ void App::syncDynamicPerspectiveForPlanar(planar_projection_t* planar, ICamera* 
 		return;
 
 	for (auto& projection : planar->getPlanarProjections())
-		nbl::ext::cameras::CCameraProjectionUtilities::syncDynamicPerspectiveProjection(camera, projection);
+		CCameraProjectionUtilities::syncDynamicPerspectiveProjection(camera, projection);
 }
 
 void App::logScriptedVirtualEvents(const char* label, const SCameraControls& controls) const

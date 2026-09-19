@@ -186,13 +186,12 @@
 		CCameraGoal& outExpectedGoal)
 	{
 		outExpectedGoal = {};
-		nbl::ext::cameras::SCameraTargetRelativePose pose = {};
+		nbl::ext::cameras::SCameraRigPose pose = {};
 		if (!nbl::ext::cameras::CCameraMathUtilities::tryBuildPoseFromOrbit(
 				desiredState,
 				nbl::ext::cameras::ICamera::DefaultMinTargetDistance,
 				nbl::ext::cameras::ICamera::DefaultMaxTargetDistance,
-				pose,
-				&pose.appliedDistance) ||
+				pose) ||
 			!CCameraGoalUtilities::applyCanonicalTargetRelativeGoal(outExpectedGoal, desiredState))
 		{
 			return false;
@@ -412,8 +411,8 @@
 				desiredState.angles += hlsl::float64_t2(0.35, 0.2);
 				desiredState.angles.y = std::clamp(
 					desiredState.angles.y,
-					-static_cast<double>(nbl::ext::cameras::SCameraTargetRelativeRigDefaults::ArcballPitchLimitRad),
-					static_cast<double>(nbl::ext::cameras::SCameraTargetRelativeRigDefaults::ArcballPitchLimitRad));
+					-static_cast<double>(nbl::ext::cameras::SCameraViewRigDefaults::ArcballPitchLimitRad),
+					static_cast<double>(nbl::ext::cameras::SCameraViewRigDefaults::ArcballPitchLimitRad));
 			}))
 		{
 			return false;
@@ -424,8 +423,8 @@
 				desiredState.angles += hlsl::float64_t2(-0.4, 0.18);
 				desiredState.angles.y = std::clamp(
 					desiredState.angles.y,
-					-static_cast<double>(nbl::ext::cameras::SCameraTargetRelativeRigDefaults::TurntablePitchLimitRad),
-					static_cast<double>(nbl::ext::cameras::SCameraTargetRelativeRigDefaults::TurntablePitchLimitRad));
+					-static_cast<double>(nbl::ext::cameras::SCameraViewRigDefaults::TurntablePitchLimitRad),
+					static_cast<double>(nbl::ext::cameras::SCameraViewRigDefaults::TurntablePitchLimitRad));
 			}))
 		{
 			return false;
@@ -435,7 +434,7 @@
 			{
 				desiredState.angles = hlsl::float64_t2(
 					desiredState.angles.x + 0.6,
-					nbl::ext::cameras::SCameraTargetRelativeRigDefaults::TopDownPitchRad);
+					nbl::ext::cameras::SCameraViewRigDefaults::TopDownPitchRad);
 			}))
 		{
 			return false;
@@ -444,8 +443,8 @@
 		if (!verifySphericalReference(state.isometricCamera, "Isometric", [&](nbl::ext::cameras::STargetOrbit& desiredState)
 			{
 				desiredState.angles = hlsl::float64_t2(
-					nbl::ext::cameras::SCameraTargetRelativeRigDefaults::IsometricYawRad,
-					nbl::ext::cameras::SCameraTargetRelativeRigDefaults::IsometricPitchRad);
+					nbl::ext::cameras::SCameraViewRigDefaults::IsometricYawRad,
+					nbl::ext::cameras::SCameraViewRigDefaults::IsometricPitchRad);
 			}))
 		{
 			return false;
@@ -456,8 +455,8 @@
 				desiredState.angles += hlsl::float64_t2(0.3, 0.15);
 				desiredState.angles.y = std::clamp(
 					desiredState.angles.y,
-					static_cast<double>(nbl::ext::cameras::SCameraTargetRelativeRigDefaults::ChaseMinPitchRad),
-					static_cast<double>(nbl::ext::cameras::SCameraTargetRelativeRigDefaults::ChaseMaxPitchRad));
+					static_cast<double>(nbl::ext::cameras::SCameraViewRigDefaults::ChaseMinPitchRad),
+					static_cast<double>(nbl::ext::cameras::SCameraViewRigDefaults::ChaseMaxPitchRad));
 			}))
 		{
 			return false;
@@ -468,8 +467,8 @@
 				desiredState.angles += hlsl::float64_t2(-0.3, -0.22);
 				desiredState.angles.y = std::clamp(
 					desiredState.angles.y,
-					-static_cast<double>(nbl::ext::cameras::SCameraTargetRelativeRigDefaults::DollyPitchLimitRad),
-					static_cast<double>(nbl::ext::cameras::SCameraTargetRelativeRigDefaults::DollyPitchLimitRad));
+					-static_cast<double>(nbl::ext::cameras::SCameraViewRigDefaults::DollyPitchLimitRad),
+					static_cast<double>(nbl::ext::cameras::SCameraViewRigDefaults::DollyPitchLimitRad));
 			}))
 		{
 			return false;
@@ -1447,7 +1446,7 @@
 				SCameraSmokeManipulationDefaults::PerspectiveNearPlane,
 				SCameraSmokeManipulationDefaults::PerspectiveFarPlane,
 				SCameraSmokeManipulationDefaults::PerspectiveFovDeg);
-			if (!nbl::ext::cameras::CCameraProjectionUtilities::syncDynamicPerspectiveProjection(state.dollyZoomCamera, perspectiveProjection))
+			if (!CCameraProjectionUtilities::syncDynamicPerspectiveProjection(state.dollyZoomCamera, perspectiveProjection))
 			{
 				outError = "Camera projection utilities smoke failed to sync dynamic perspective projection.";
 				return false;
@@ -1462,7 +1461,7 @@
 				SCameraSmokeManipulationDefaults::PerspectiveNearPlane,
 				SCameraSmokeManipulationDefaults::PerspectiveFarPlane,
 				SCameraSmokeManipulationDefaults::OrthoExtent);
-			if (nbl::ext::cameras::CCameraProjectionUtilities::syncDynamicPerspectiveProjection(state.dollyZoomCamera, orthographicProjection))
+			if (CCameraProjectionUtilities::syncDynamicPerspectiveProjection(state.dollyZoomCamera, orthographicProjection))
 			{
 				outError = "Camera projection utilities smoke unexpectedly synced orthographic projection.";
 				return false;
