@@ -821,8 +821,6 @@ public:
 				binding.setMouseMovementGate(ECameraControlAxis::Rotate, ui::EMB_LEFT_BUTTON);
 			}
 
-		static std::chrono::microseconds previousEventTimestamp{};
-
 		m_inputSystem->getDefaultMouse(&m_mouse);
 		m_inputSystem->getDefaultKeyboard(&m_keyboard);
 
@@ -853,10 +851,6 @@ public:
 				{
 					for (const auto& e : events)
 					{
-						if (e.timeStamp < previousEventTimestamp)
-							continue;
-
-						previousEventTimestamp = e.timeStamp;
 						capturedEvents.mouse.emplace_back(e);
 						if (!io.WantCaptureMouse)
 							capturedEvents.cameraMouse.emplace_back(e);
@@ -867,10 +861,6 @@ public:
 				{
 					for (const auto& e : events)
 					{
-						if (e.timeStamp < previousEventTimestamp)
-							continue;
-
-						previousEventTimestamp = e.timeStamp;
 						capturedEvents.keyboard.emplace_back(e);
 						if (!io.WantCaptureKeyboard)
 							capturedEvents.cameraKeyboard.emplace_back(e);

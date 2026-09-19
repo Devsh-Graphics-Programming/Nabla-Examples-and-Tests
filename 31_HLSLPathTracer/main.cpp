@@ -1553,8 +1553,6 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 				binding.setMouseMovementGate(ECameraControlAxis::Rotate, ui::EMB_LEFT_BUTTON);
 			}
 
-			static std::chrono::microseconds previousEventTimestamp{};
-
 			m_inputSystem->getDefaultMouse(&mouse);
 			m_inputSystem->getDefaultKeyboard(&keyboard);
 
@@ -1590,10 +1588,6 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 
 						for (const auto& e : events) // here capture
 						{
-							if (e.timeStamp < previousEventTimestamp)
-								continue;
-
-							previousEventTimestamp = e.timeStamp;
 							capturedEvents.mouse.emplace_back(e);
 
 							if (e.type == nbl::ui::SMouseEvent::EET_SCROLL)
@@ -1608,9 +1602,6 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 
 						for (const auto& e : events) // here capture
 						{
-							if (e.timeStamp < previousEventTimestamp)
-								continue;
-
 							if (e.keyCode == ui::EKC_F12)
 								if (e.action == ui::SKeyboardEvent::ECA_RELEASED)
 									requestSceneScreenshot(getNextSceneScreenshotPath(), false);
@@ -1619,7 +1610,6 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 								if (e.action == ui::SKeyboardEvent::ECA_RELEASED)
 									m_showUI = !m_showUI;
 
-							previousEventTimestamp = e.timeStamp;
 							capturedEvents.keyboard.emplace_back(e);
 						}
 					}, m_logger.get());
