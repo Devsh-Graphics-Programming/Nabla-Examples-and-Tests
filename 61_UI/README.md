@@ -132,7 +132,7 @@ From the camera extension:
 - [`SCameraControls.hpp`](../../include/nbl/ext/Cameras/SCameraControls.hpp)
 - [`CCameraMouseKeyboardController.hpp`](../../include/nbl/ext/Cameras/CCameraMouseKeyboardController.hpp)
 - [`CCameraMouseKeyboardPresets.hpp`](../../include/nbl/ext/Cameras/CCameraMouseKeyboardPresets.hpp)
-- [`CPlanarProjection.hpp`](../../include/nbl/ext/Cameras/CPlanarProjection.hpp)
+- [`CCameraWithProjections.hpp`](../../include/nbl/ext/Cameras/CCameraWithProjections.hpp) and [`CPlanarProjection.hpp`](../../include/nbl/ext/Cameras/CPlanarProjection.hpp)
 - [`CCameraPathUtilities.hpp`](../../include/nbl/ext/Cameras/CCameraPathUtilities.hpp) and [`CCameraKindUtilities.hpp`](../../include/nbl/ext/Cameras/CCameraKindUtilities.hpp)
 
 The scripting model, follow math and camera restore logic are local, in [`include/camera/`](include/camera/).
