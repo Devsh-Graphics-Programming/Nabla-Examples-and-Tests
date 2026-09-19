@@ -44,8 +44,9 @@ class PhotonCausticsApp final : public SimpleWindowedApplication, public Builtin
 	constexpr static inline float EmitterHalfExtent = 0.5f;
 	constexpr static inline float SphereRadius = 0.75f;
 	constexpr static inline float SceneHalfExtent = 2.f;
-	static inline const core::vectorSIMDf InitialCamPos = core::vectorSIMDf(0, 3, 8);
-	static inline const core::vectorSIMDf InitialCamTarget = core::vectorSIMDf(0, 1, 0);
+	static inline const hlsl::float64_t3 InitialCamPos = hlsl::float64_t3(0, 3, 8);
+	static inline const hlsl::float64_t3 InitialCamTarget = hlsl::float64_t3(0, 1, 0);
+	static inline const hlsl::float64_t3 CamUp = hlsl::float64_t3(0, 1, 0);
 
 public:
 	inline PhotonCausticsApp(const path& _localInputCWD, const path& _localOutputCWD, const path& _sharedInputCWD, const path& _sharedOutputCWD)
@@ -373,15 +374,18 @@ public:
 		// Camera Init position and matrices
 		//-------------------------------------
 		{
-			hlsl::float32_t4x4 proj = hlsl::math::thin_lens::rhPerspectiveFovMatrix(
+			m_cameraProjection = hlsl::math::thin_lens::rhPerspectiveFovMatrix(
 				core::radians(m_cameraSetting.fov),
 				float(WIN_W) / float(WIN_H),
 				m_cameraSetting.zNear, m_cameraSetting.zFar);
 			// Initial position of the camera
-			m_camera = Camera(InitialCamPos, InitialCamTarget, proj);
+			m_camera = core::make_smart_refctd_ptr<ext::cameras::CFPSCamera>(InitialCamPos);
+			if (!resetCameraPose())
+				return logFail("Could not initialize camera orientation!");
+			// WASD moves, the mouse looks while the left button is held
+			updateCameraBinding();
 			// cache this to reset it
-			m_InitialMVP = m_camera.getConcatenatedMatrix();
-			m_camera.mapKeysToWASD();
+			m_InitialMVP = getViewProjectionMatrix();
 		}
 
 		// show the window (and start presentation time recording?)
@@ -459,7 +463,7 @@ public:
 		cmdbuf->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
 		cmdbuf->beginDebugMarker("PhotonCaustics Frame");
 
-		const auto& viewProjectionMatrix = m_camera.getConcatenatedMatrix();
+		const auto viewProjectionMatrix = getViewProjectionMatrix();
 		// reset accumulation when we move the camera
 		if (m_cachedMVP != viewProjectionMatrix)
 		{
@@ -575,8 +579,8 @@ public:
 
 			SPushConstants pc = {};
 			pc.invMVP = invMVP;
-			const auto camPos = m_camera.getPosition().getAsVector3df();
-			pc.camPos = float32_t3(camPos.X, camPos.Y, camPos.Z);
+			const auto camPos = m_camera->getGimbal().getPosition();
+			pc.camPos = float32_t3(float(camPos.x), float(camPos.y), float(camPos.z));
 			pc.accumulatedFrames = m_accumulatedFrames;
 			pc.geomInfoBuffer = m_geomInfoBuffer->getDeviceAddress();
 			pc.lightBuffer = m_lightBuffer->getDeviceAddress();
@@ -669,12 +673,35 @@ public:
 		}
 	}
 
+	// the view matrix is the camera's, the projection is ours, so the concatenation is built here every time it's needed
+	inline hlsl::float32_t4x4 getViewProjectionMatrix() const
+	{
+		const auto viewMatrix = hlsl::float32_t3x4(m_camera->getGimbal().getViewMatrixRH());
+		return hlsl::math::linalg::promoted_mul(m_cameraProjection, viewMatrix);
+	}
+
+	// the UI owns the speeds, so the binding is rebuilt from the default and scaled instead of being compounded
+	inline void updateCameraBinding()
+	{
+		using namespace ext::cameras;
+		auto& binding = m_cameraController.binding;
+		binding = CCameraMouseKeyboardPresets::makeDefaultBinding(ICamera::CameraKind::FPS);
+		binding.scaleSensitivity(ECameraControlAxis::Translate, m_cameraSetting.moveSpeed);
+		binding.scaleSensitivity(ECameraControlAxis::Rotate, m_cameraSetting.rotateSpeed);
+		binding.setMouseMovementGate(ECameraControlAxis::Rotate, ui::EMB_LEFT_BUTTON);
+	}
+
+	inline bool resetCameraPose()
+	{
+		hlsl::math::quaternion<hlsl::float64_t> orientation;
+		if (!ext::cameras::CCameraMathUtilities::tryCreateQuaternionFromLookAt(InitialCamPos, InitialCamTarget, CamUp, orientation))
+			return false;
+		return m_camera->setPose(ext::cameras::SCameraRigPose{ .position = InitialCamPos, .orientation = orientation });
+	}
+
 	inline void update()
 	{
-		m_camera.setMoveSpeed(m_cameraSetting.moveSpeed);
-		m_camera.setRotateSpeed(m_cameraSetting.rotateSpeed);
-
-		static std::chrono::microseconds previousEventTimestamp{};
+		updateCameraBinding();
 
 		m_inputSystem->getDefaultMouse(&m_mouse);
 		m_inputSystem->getDefaultKeyboard(&m_keyboard);
@@ -692,32 +719,29 @@ public:
 		struct {
 			std::vector<SMouseEvent> mouse{};
 			std::vector<SKeyboardEvent> keyboard{};
+			std::vector<SMouseEvent> cameraMouse{};
+			std::vector<SKeyboardEvent> cameraKeyboard{};
 		} capturedEvents;
 
-		m_camera.beginInputProcessing(nextPresentationTimestamp);
 		{
 			const auto& io = ImGui::GetIO();
 
 			m_mouse.consumeEvents([&](const IMouseEventChannel::range_t& events) -> void
 				{
-					// Note: When the cursor is over ImGui, the camera must not also see the event
-					if (!io.WantCaptureMouse)
-						m_camera.mouseProcess(events);
 					for (const auto& e : events) {
-						if (e.timeStamp < previousEventTimestamp) continue;
-						previousEventTimestamp = e.timeStamp;
 						capturedEvents.mouse.emplace_back(e);
+						// Note: When the cursor is over ImGui, the camera must not also see the event
+						if (!io.WantCaptureMouse)
+							capturedEvents.cameraMouse.emplace_back(e);
 					}
 				}, m_logger.get());
 
 			m_keyboard.consumeEvents([&](const IKeyboardEventChannel::range_t& events) -> void
 				{
-					if (!io.WantCaptureKeyboard)
-						m_camera.keyboardProcess(events);
 					for (const auto& e : events) {
-						if (e.timeStamp < previousEventTimestamp) continue;
-						previousEventTimestamp = e.timeStamp;
 						capturedEvents.keyboard.emplace_back(e);
+						if (!io.WantCaptureKeyboard)
+							capturedEvents.cameraKeyboard.emplace_back(e);
 
 						//if (e.keyCode == EKC_ESCAPE)
 						//{
@@ -726,7 +750,10 @@ public:
 					}
 				}, m_logger.get());
 		}
-		m_camera.endInputProcessing(nextPresentationTimestamp);
+		{
+			const auto controls = m_cameraController.collect(nextPresentationTimestamp, capturedEvents.cameraKeyboard, capturedEvents.cameraMouse);
+			m_camera->manipulate(controls);
+		}
 
 		const core::SRange<const nbl::ui::SMouseEvent> mouseEvents(capturedEvents.mouse.data(), capturedEvents.mouse.data() + capturedEvents.mouse.size());
 		const core::SRange<const nbl::ui::SKeyboardEvent> keyboardEvents(capturedEvents.keyboard.data(), capturedEvents.keyboard.data() + capturedEvents.keyboard.size());
@@ -763,7 +790,7 @@ private:
 				hlsl::float32_t3x4 transform;
 				if (degrees != 0.f)
 				{
-					const auto rotation = hlsl::math::quaternion<hlsl::float32_t>::create(axis, core::radians(degrees));
+					const auto rotation = hlsl::math::quaternion<hlsl::float32_t>::createFromAxisAngle(axis, core::radians(degrees));
 					transform = hlsl::math::linalg::promote_affine<3, 4, 3, 3>(hlsl::_static_cast<hlsl::float32_t3x3>(rotation));
 				}
 				else
@@ -1525,8 +1552,7 @@ private:
 				ImGui::SliderFloat("Rotate speed", &m_cameraSetting.rotateSpeed, 0.1f, 10.f);
 				if (ImGui::Button("Reset Camera"))
 				{
-					m_camera.setPosition(InitialCamPos);
-					m_camera.setTarget(InitialCamTarget);
+					resetCameraPose();
 					m_cachedMVP = m_InitialMVP;
 					m_accumulatedFrames = 0;
 				}
@@ -1628,7 +1654,9 @@ private:
 	} m_ui;
 
 	struct CameraSettings { float moveSpeed = 1.f, rotateSpeed = 1.f, fov = 60.f, zNear = 0.01f, zFar = 500.f; } m_cameraSetting;
-	Camera m_camera;
+	core::smart_refctd_ptr<ext::cameras::CFPSCamera> m_camera;
+	ext::cameras::CCameraMouseKeyboardController m_cameraController;
+	hlsl::float32_t4x4 m_cameraProjection = hlsl::float32_t4x4(1.f);
 	hlsl::float32_t4x4 m_cachedMVP;
 	hlsl::float32_t4x4 m_InitialMVP;
 	uint32_t m_accumulatedFrames = 0;

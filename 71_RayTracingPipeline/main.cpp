@@ -481,18 +481,11 @@ public:
 			[this]() -> void {
 				ImGuiIO& io = ImGui::GetIO();
 
-				m_camera.setProjectionMatrix([&]()
-					{
-						static hlsl::float32_t4x4 projection;
-
-						projection = hlsl::math::thin_lens::rhPerspectiveFovMatrix(
-							core::radians(m_cameraSetting.fov),
-							io.DisplaySize.x / io.DisplaySize.y,
-							m_cameraSetting.zNear,
-							m_cameraSetting.zFar);
-
-						return projection;
-					}());
+				m_cameraProjection = hlsl::math::thin_lens::rhPerspectiveFovMatrix(
+					core::radians(m_cameraSetting.fov),
+					io.DisplaySize.x / io.DisplaySize.y,
+					m_cameraSetting.zNear,
+					m_cameraSetting.zFar);
 
 				ImGui::SetNextWindowPos(ImVec2(1024, 100), ImGuiCond_Appearing);
 				ImGui::SetNextWindowSize(ImVec2(256, 256), ImGuiCond_Appearing);
@@ -555,15 +548,28 @@ public:
 				0.01f,
 				500.0f
 			);
-			m_camera = Camera(cameraPosition, core::vectorSIMDf(0, 0, 0), proj);
+			m_cameraProjection = proj;
+			const auto cameraEye = hlsl::float64_t3(cameraPosition.x, cameraPosition.y, cameraPosition.z);
+			hlsl::math::quaternion<hlsl::float64_t> cameraOrientation;
+			if (!ext::cameras::CCameraMathUtilities::tryCreateQuaternionFromLookAt(
+					cameraEye, hlsl::float64_t3(0.0, 0.0, 0.0), hlsl::float64_t3(0.0, 1.0, 0.0), cameraOrientation))
+				return logFail("Could not initialize camera orientation!");
+			m_camera = core::make_smart_refctd_ptr<ext::cameras::CFPSCamera>(cameraEye, cameraOrientation);
+			// WASD moves, the mouse looks while the left button is held
+			{
+				using namespace ext::cameras;
+				auto& binding = m_cameraController.binding;
+				binding = CCameraMouseKeyboardPresets::makeDefaultBinding(ICamera::CameraKind::FPS);
+				binding.scaleSensitivity(ECameraControlAxis::Translate, m_cameraSetting.moveSpeed);
+				binding.scaleSensitivity(ECameraControlAxis::Rotate, m_cameraSetting.rotateSpeed);
+				binding.setMouseMovementGate(ECameraControlAxis::Rotate, ui::EMB_LEFT_BUTTON);
+			}
 		}
 
 		m_winMgr->setWindowSize(m_window.get(), WIN_W, WIN_H);
 		m_surface->recreateSwapchain();
 		m_winMgr->show(m_window.get());
 		m_oracle.reportBeginFrameRecord();
-		m_camera.mapKeysToWASD();
-
 		return true;
 	}
 
@@ -623,9 +629,9 @@ public:
 		cmdbuf->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
 		cmdbuf->beginDebugMarker("RaytracingPipelineApp Frame");
 
-		const auto viewMatrix = m_camera.getViewMatrix();
-		const auto projectionMatrix = m_camera.getProjectionMatrix();
-		const auto viewProjectionMatrix = m_camera.getConcatenatedMatrix();
+		const auto viewMatrix = hlsl::float32_t3x4(m_camera->getGimbal().getViewMatrixRH());
+		const auto projectionMatrix = m_cameraProjection;
+		const auto viewProjectionMatrix = hlsl::math::linalg::promoted_mul(m_cameraProjection, viewMatrix);
 
 		//hlsl::float32_t3x4 modelMatrix;
 
@@ -667,7 +673,8 @@ public:
 			pc.proceduralGeomInfoBuffer = m_proceduralGeomInfoBuffer->getDeviceAddress();
 			pc.triangleGeomInfoBuffer = m_triangleGeomInfoBuffer->getDeviceAddress();
 			pc.frameCounter = m_frameAccumulationCounter;
-			const core::vector3df camPos = m_camera.getPosition().getAsVector3df();
+			const auto camPos64 = m_camera->getGimbal().getPosition();
+			const core::vector3df camPos(static_cast<float>(camPos64.x), static_cast<float>(camPos64.y), static_cast<float>(camPos64.z));
 			pc.camPos = { camPos.X, camPos.Y, camPos.Z };
 			pc.invMVP = invModelViewProjectionMatrix;
 
@@ -804,10 +811,15 @@ public:
 
 	inline void update()
 	{
-		m_camera.setMoveSpeed(m_cameraSetting.moveSpeed);
-		m_camera.setRotateSpeed(m_cameraSetting.rotateSpeed);
-
-		static std::chrono::microseconds previousEventTimestamp{};
+			// the UI owns the speeds, so the binding is rebuilt from the default and scaled every frame
+			{
+				using namespace ext::cameras;
+				auto& binding = m_cameraController.binding;
+				binding = CCameraMouseKeyboardPresets::makeDefaultBinding(ICamera::CameraKind::FPS);
+				binding.scaleSensitivity(ECameraControlAxis::Translate, m_cameraSetting.moveSpeed);
+				binding.scaleSensitivity(ECameraControlAxis::Rotate, m_cameraSetting.rotateSpeed);
+				binding.setMouseMovementGate(ECameraControlAxis::Rotate, ui::EMB_LEFT_BUTTON);
+			}
 
 		m_inputSystem->getDefaultMouse(&m_mouse);
 		m_inputSystem->getDefaultKeyboard(&m_keyboard);
@@ -829,44 +841,35 @@ public:
 		{
 			std::vector<SMouseEvent> mouse{};
 			std::vector<SKeyboardEvent> keyboard{};
+			std::vector<SMouseEvent> cameraMouse{};
+			std::vector<SKeyboardEvent> cameraKeyboard{};
 		} capturedEvents;
 
-		m_camera.beginInputProcessing(nextPresentationTimestamp);
 		{
 			const auto& io = ImGui::GetIO();
 			m_mouse.consumeEvents([&](const IMouseEventChannel::range_t& events) -> void
 				{
-					if (!io.WantCaptureMouse)
-						m_camera.mouseProcess(events); // don't capture the events, only let camera handle them with its impl
-
-					for (const auto& e : events) // here capture
+					for (const auto& e : events)
 					{
-						if (e.timeStamp < previousEventTimestamp)
-							continue;
-
-						previousEventTimestamp = e.timeStamp;
 						capturedEvents.mouse.emplace_back(e);
-
+						if (!io.WantCaptureMouse)
+							capturedEvents.cameraMouse.emplace_back(e);
 					}
 				}, m_logger.get());
 
 			m_keyboard.consumeEvents([&](const IKeyboardEventChannel::range_t& events) -> void
 				{
-					if (!io.WantCaptureKeyboard)
-						m_camera.keyboardProcess(events); // don't capture the events, only let camera handle them with its impl
-
-					for (const auto& e : events) // here capture
+					for (const auto& e : events)
 					{
-						if (e.timeStamp < previousEventTimestamp)
-							continue;
-
-						previousEventTimestamp = e.timeStamp;
 						capturedEvents.keyboard.emplace_back(e);
+						if (!io.WantCaptureKeyboard)
+							capturedEvents.cameraKeyboard.emplace_back(e);
 					}
 				}, m_logger.get());
 
 		}
-		m_camera.endInputProcessing(nextPresentationTimestamp);
+			const auto controls = m_cameraController.collect(nextPresentationTimestamp, capturedEvents.cameraKeyboard, capturedEvents.cameraMouse);
+			m_camera->manipulate(controls);
 
 		const core::SRange<const nbl::ui::SMouseEvent> mouseEvents(capturedEvents.mouse.data(), capturedEvents.mouse.data() + capturedEvents.mouse.size());
 		const core::SRange<const nbl::ui::SKeyboardEvent> keyboardEvents(capturedEvents.keyboard.data(), capturedEvents.keyboard.data() + capturedEvents.keyboard.size());
@@ -1070,7 +1073,7 @@ private:
 				return transform;
 			};
 
-		const auto planeRotation = hlsl::math::quaternion<hlsl::float32_t>::create(hlsl::float32_t3(1.f, 0.f, 0.f), core::radians(-90.0f));
+		const auto planeRotation = hlsl::math::quaternion<hlsl::float32_t>::createFromAxisAngle(hlsl::float32_t3(1.f, 0.f, 0.f), core::radians(-90.0f));
 		hlsl::float32_t3x4 planeTransform = hlsl::math::linalg::promote_affine<3, 4, 3, 3>(hlsl::_static_cast<hlsl::float32_t3x3>(planeRotation));
 
 		// triangles geometries
@@ -1461,7 +1464,9 @@ private:
 		float camXAngle = 32.f / 180.f * 3.14159f;
 
 	} m_cameraSetting;
-	Camera m_camera = Camera(core::vectorSIMDf(0, 0, 0), core::vectorSIMDf(0, 0, 0), hlsl::float32_t4x4());
+	core::smart_refctd_ptr<ext::cameras::CFPSCamera> m_camera;
+	ext::cameras::CCameraMouseKeyboardController m_cameraController;
+	hlsl::float32_t4x4 m_cameraProjection = hlsl::float32_t4x4(1.0f);
 
 	Light m_light = {
 	  .direction = {-1.0f, -1.0f, -0.4f},

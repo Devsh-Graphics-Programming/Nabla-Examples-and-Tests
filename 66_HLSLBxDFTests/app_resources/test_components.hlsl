@@ -142,7 +142,7 @@ struct TestNDF : TestBxDF<BxDF>
         float det = nbl::hlsl::determinant<float32_t2x2>(m) / (eps * eps);
         
         float jacobi_dg1 = det * dg1 / absNdotL;
-        if (!checkZero<float>(det, 1e-3) && !testing::relativeApproxCompare<float>(jacobi_dg1, 1.0, 0.1))
+        if (!checkZero<float>(det, 1e-3) && !approx::absRelEqual<float>(jacobi_dg1, 1.0f, 0.1f, 0.1f))
         {
 #ifndef __HLSL_VERSION
             if (verbose)

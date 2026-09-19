@@ -57,8 +57,28 @@ public:
 			constexpr float fov = 60.f, zNear = 0.1f, zFar = 10000.f, moveSpeed = 1.f, rotateSpeed = 1.f;
 	        core::vectorSIMDf cameraPosition(14, 8, 12);
 		    core::vectorSIMDf cameraTarget(0, 0, 0);
-		    hlsl::float32_t4x4 projectionMatrix = hlsl::math::thin_lens::rhPerspectiveFovMatrix(core::radians(fov), float(WIN_W) / WIN_H, zNear, zFar);
-		    camera = Camera(cameraPosition, cameraTarget, projectionMatrix, moveSpeed, rotateSpeed);
+		    cameraProjection = hlsl::math::thin_lens::rhPerspectiveFovMatrix(core::radians(fov), float(WIN_W) / WIN_H, zNear, zFar);
+			const auto cameraEye = hlsl::float64_t3(cameraPosition.x, cameraPosition.y, cameraPosition.z);
+			hlsl::math::quaternion<hlsl::float64_t> cameraOrientation;
+			if (!ext::cameras::CCameraMathUtilities::tryCreateQuaternionFromLookAt(
+					cameraEye,
+					hlsl::float64_t3(cameraTarget.x, cameraTarget.y, cameraTarget.z),
+					hlsl::float64_t3(0.0, 1.0, 0.0),
+					cameraOrientation))
+			{
+				return logFail("Could not initialize camera orientation!");
+			}
+			camera = core::make_smart_refctd_ptr<ext::cameras::CFPSCamera>(cameraEye, cameraOrientation);
+
+			// WASD moves, the mouse looks while the left button is held
+			{
+				using namespace ext::cameras;
+				auto& binding = cameraController.binding;
+				binding = CCameraMouseKeyboardPresets::makeDefaultBinding(ICamera::CameraKind::FPS);
+				binding.scaleSensitivity(ECameraControlAxis::Translate, moveSpeed);
+				binding.scaleSensitivity(ECameraControlAxis::Rotate, rotateSpeed);
+				binding.setMouseMovementGate(ECameraControlAxis::Rotate, ui::EMB_LEFT_BUTTON);
+			}
 	    }
 
 		m_semaphore = m_device->createSemaphore(m_realFrameIx);
@@ -190,10 +210,18 @@ public:
 		cmdbuf->beginDebugMarker("DebugDrawSampleApp IMGUI Frame");
 
 		{
-			camera.beginInputProcessing(nextPresentationTimestamp);
-			mouse.consumeEvents([&](const IMouseEventChannel::range_t& events) -> void { camera.mouseProcess(events); }, m_logger.get());
-			keyboard.consumeEvents([&](const IKeyboardEventChannel::range_t& events) -> void { camera.keyboardProcess(events); }, m_logger.get());
-			camera.endInputProcessing(nextPresentationTimestamp);
+			std::vector<SMouseEvent> cameraMouseEvents;
+			std::vector<SKeyboardEvent> cameraKeyboardEvents;
+			mouse.consumeEvents([&](const IMouseEventChannel::range_t& events) -> void
+				{
+					cameraMouseEvents.insert(cameraMouseEvents.end(), events.begin(), events.end());
+				}, m_logger.get());
+			keyboard.consumeEvents([&](const IKeyboardEventChannel::range_t& events) -> void
+				{
+					cameraKeyboardEvents.insert(cameraKeyboardEvents.end(), events.begin(), events.end());
+				}, m_logger.get());
+			const auto controls = cameraController.collect(nextPresentationTimestamp, cameraKeyboardEvents, cameraMouseEvents);
+			camera->manipulate(controls);
 		}
 
 		auto* queue = getGraphicsQueue();
@@ -234,7 +262,7 @@ public:
 
 			ext::debug_draw::DrawAABB::DrawParameters drawParams;
 			drawParams.commandBuffer = cmdbuf;
-			drawParams.cameraMat = camera.getConcatenatedMatrix();
+			drawParams.cameraMat = hlsl::math::linalg::promoted_mul(cameraProjection, hlsl::float32_t3x4(camera->getGimbal().getViewMatrixRH()));
 			
 			if (!drawAABB->renderSingle(drawParams, testAABB, float32_t4{ 1, 0, 0, 1 }))
 				m_logger->log("Unable to draw AABB with single draw pipeline!", ILogger::ELL_ERROR);
@@ -355,7 +383,9 @@ private:
     InputSystem::ChannelReader<IMouseEventChannel> mouse;
     InputSystem::ChannelReader<IKeyboardEventChannel> keyboard;
 
-	Camera camera;
+	core::smart_refctd_ptr<ext::cameras::CFPSCamera> camera;
+	ext::cameras::CCameraMouseKeyboardController cameraController;
+	hlsl::float32_t4x4 cameraProjection = hlsl::float32_t4x4(1.0f);
 	video::CDumbPresentationOracle oracle;
 
 	smart_refctd_ptr<ext::debug_draw::DrawAABB> drawAABB;

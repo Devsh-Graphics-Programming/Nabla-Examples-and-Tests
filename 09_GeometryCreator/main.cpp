@@ -72,10 +72,24 @@ class GeometryCreatorApp final : public MonoWindowApplication, public BuiltinRes
 
 			// camera
 			{
-				core::vectorSIMDf cameraPosition(-5.81655884, 2.58630896, -4.23974705);
-				core::vectorSIMDf cameraTarget(-0.349590302, -0.213266611, 0.317821503);
-				float32_t4x4 projectionMatrix = hlsl::math::thin_lens::lhPerspectiveFovMatrix<float>(core::radians(60.0f), float(m_initialResolution.x) / m_initialResolution.y, 10000.0f, 0.1f);
-				camera = Camera(cameraPosition, cameraTarget, projectionMatrix, 1.069f, 0.4f);
+				const auto cameraPosition = hlsl::float64_t3(-5.81655884, 2.58630896, -4.23974705);
+				const auto cameraTarget = hlsl::float64_t3(-0.349590302, -0.213266611, 0.317821503);
+				cameraProjection = hlsl::math::thin_lens::lhPerspectiveFovMatrix<float>(core::radians(60.0f), float(m_initialResolution.x) / m_initialResolution.y, 10000.0f, 0.1f);
+
+				hlsl::math::quaternion<hlsl::float64_t> cameraOrientation;
+				if (!ext::cameras::CCameraMathUtilities::tryCreateQuaternionFromLookAt(cameraPosition, cameraTarget, hlsl::float64_t3(0.0, 1.0, 0.0), cameraOrientation))
+					return logFail("Could not initialize camera orientation!");
+				camera = core::make_smart_refctd_ptr<ext::cameras::CFPSCamera>(cameraPosition, cameraOrientation);
+
+				// WASD moves, the mouse looks while the left button is held
+				{
+					using namespace ext::cameras;
+					auto& binding = cameraController.binding;
+					binding = CCameraMouseKeyboardPresets::makeDefaultBinding(ICamera::CameraKind::FPS);
+					binding.scaleSensitivity(ECameraControlAxis::Translate, 1.069);
+					binding.scaleSensitivity(ECameraControlAxis::Rotate, 0.4);
+					binding.setMouseMovementGate(ECameraControlAxis::Rotate, ui::EMB_LEFT_BUTTON);
+				}
 			}
 
 			onAppInitializedFinish();
@@ -94,10 +108,16 @@ class GeometryCreatorApp final : public MonoWindowApplication, public BuiltinRes
 			cb->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
 			cb->beginDebugMarker("GeometryCreatorApp Frame");
 			{
-				camera.beginInputProcessing(nextPresentationTimestamp);
-				mouse.consumeEvents([&](const IMouseEventChannel::range_t& events) -> void { camera.mouseProcess(events); mouseProcess(events); }, m_logger.get());
-				keyboard.consumeEvents([&](const IKeyboardEventChannel::range_t& events) -> void { camera.keyboardProcess(events); }, m_logger.get());
-				camera.endInputProcessing(nextPresentationTimestamp);
+				std::vector<ui::SMouseEvent> mouseEvents;
+				std::vector<ui::SKeyboardEvent> keyboardEvents;
+
+				mouse.consumeEvents([&](const IMouseEventChannel::range_t& events) -> void { mouseEvents.insert(mouseEvents.end(), events.begin(), events.end()); }, m_logger.get());
+				keyboard.consumeEvents([&](const IKeyboardEventChannel::range_t& events) -> void { keyboardEvents.insert(keyboardEvents.end(), events.begin(), events.end()); }, m_logger.get());
+
+				mouseProcess({ mouseEvents.data(), mouseEvents.size() });
+
+				const auto controls = cameraController.collect(nextPresentationTimestamp, keyboardEvents, mouseEvents);
+				camera->manipulate(controls);
 			}
 
 
@@ -138,8 +158,8 @@ class GeometryCreatorApp final : public MonoWindowApplication, public BuiltinRes
 				cb->beginRenderPass(info, IGPUCommandBuffer::SUBPASS_CONTENTS::INLINE);
 			}
 
-			float32_t3x4 viewMatrix = camera.getViewMatrix();
-			float32_t4x4 viewProjMatrix = camera.getConcatenatedMatrix();
+			const auto viewMatrix = hlsl::float32_t3x4(camera->getGimbal().getViewMatrixLH());
+			const auto viewProjMatrix = hlsl::math::linalg::promoted_mul(cameraProjection, viewMatrix);
 			const auto viewParams = CSimpleDebugRenderer::SViewParams(viewMatrix,viewProjMatrix);
 
 			// tear down scene every frame
@@ -245,16 +265,16 @@ class GeometryCreatorApp final : public MonoWindowApplication, public BuiltinRes
 		InputSystem::ChannelReader<IKeyboardEventChannel> keyboard;
 
 		//
-		Camera camera = Camera(core::vectorSIMDf(0, 0, 0), core::vectorSIMDf(0, 0, 0), hlsl::float32_t4x4());
+		core::smart_refctd_ptr<ext::cameras::CFPSCamera> camera;
+		ext::cameras::CCameraMouseKeyboardController cameraController;
+		hlsl::float32_t4x4 cameraProjection = hlsl::float32_t4x4(1.0f);
 
 		uint16_t gcIndex = {};
 
-		void mouseProcess(const nbl::ui::IMouseEventChannel::range_t& events)
+		void mouseProcess(std::span<const nbl::ui::SMouseEvent> events)
 		{
-			for (auto eventIt = events.begin(); eventIt != events.end(); eventIt++)
+			for (const auto& ev : events)
 			{
-				auto ev = *eventIt;
-
 				if (ev.type==nbl::ui::SMouseEvent::EET_SCROLL && m_renderer)
 				{
 					gcIndex += int16_t(core::sign(ev.scrollEvent.verticalScroll));

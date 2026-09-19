@@ -169,7 +169,7 @@ struct TestJacobian : TestBxDF<BxDF>
         }
 
         float32_t3 quo_pdf = sampledLi.quotient()*claimedPdf;
-        if (!testing::relativeApproxCompare<float32_t3>(quo_pdf, Li.value(), 1e-4))
+        if (!approx::absRelEqual<float32_t3>(quo_pdf, Li.value(), 1e-4f, 1e-4f))
         {
 #ifndef __HLSL_VERSION
             if (verbose)
@@ -377,7 +377,7 @@ struct TestReciprocity : TestBxDF<BxDF>
         float32_t3 a = Li.value() / absNdotL;
         float32_t3 b = recLi.value() / hlsl::abs(rec_s.getNdotL());
         if (!(a == b))  // avoid division by 0
-            if (!testing::relativeApproxCompare<float32_t3>(a, b, 1.25e-2))
+            if (!approx::absRelEqual<float32_t3>(a, b, 1.25e-2f, 1.25e-2f))
             {
 #ifndef __HLSL_VERSION
                 if (verbose)

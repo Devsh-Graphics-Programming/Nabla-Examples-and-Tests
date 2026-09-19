@@ -82,7 +82,7 @@ bool IESViewer::recreate3DPlotFramebuffers(uint32_t width, uint32_t height)
 
     const float aspect = float(width) / float(height);
     const auto projectionMatrix = buildProjectionMatrixPerspectiveFovLH<float32_t>(hlsl::radians(uiState.cameraFovDeg), aspect, 10000.0f, 0.1f);
-    camera.setProjectionMatrix(projectionMatrix);
+    cameraProjection = projectionMatrix;
 
     return true;
 }
@@ -119,8 +119,15 @@ IQueue::SSubmitInfo::SSemaphoreInfo IESViewer::renderFrame(const std::chrono::mi
         uiState.cameraControlApplied = wantCameraControl;
         const float moveSpeed = wantCameraControl ? uiState.cameraMoveSpeed : 0.0f;
         const float rotateSpeed = wantCameraControl ? uiState.cameraRotateSpeed : 0.0f;
-        camera.setMoveSpeed(moveSpeed);
-        camera.setRotateSpeed(rotateSpeed);
+        // zero speeds leave the camera still, which is how the viewer hands control back to the plot
+        {
+            using namespace ext::cameras;
+            auto& binding = cameraController.binding;
+            binding = CCameraMouseKeyboardPresets::makeDefaultBinding(ICamera::CameraKind::FPS);
+            binding.scaleSensitivity(ECameraControlAxis::Translate, moveSpeed);
+            binding.scaleSensitivity(ECameraControlAxis::Rotate, rotateSpeed);
+            binding.setMouseMovementGate(ECameraControlAxis::Rotate, ui::EMB_LEFT_BUTTON);
+        }
     }
 
 
@@ -144,20 +151,16 @@ IQueue::SSubmitInfo::SSemaphoreInfo IESViewer::renderFrame(const std::chrono::mi
             std::vector<SMouseEvent> mouse{}; std::vector<SKeyboardEvent> keyboard{};
         } captured;
 
-        camera.beginInputProcessing(nextPresentationTimestamp);
         if (windowFocused)
         {
             mouse.consumeEvents([&](const IMouseEventChannel::range_t& events) -> void
             {
-                if (wantCameraControl)
-                    camera.mouseProcess(events);
                 processMouse(events);
                 for (const auto& e : events)
                     captured.mouse.emplace_back(e);
             }, m_logger.get());
             keyboard.consumeEvents([&](const IKeyboardEventChannel::range_t& events) -> void
             {
-                camera.keyboardProcess(events);
                 processKeyboard(events);
                 for (const auto& e : events)
                     captured.keyboard.emplace_back(e);
@@ -168,29 +171,32 @@ IQueue::SSubmitInfo::SSemaphoreInfo IESViewer::renderFrame(const std::chrono::mi
             mouse.consumeEvents([&](const IMouseEventChannel::range_t&) -> void {}, m_logger.get());
             keyboard.consumeEvents([&](const IKeyboardEventChannel::range_t&) -> void {}, m_logger.get());
         }
-        camera.endInputProcessing(nextPresentationTimestamp);
+        const auto controls = cameraController.collect(
+            nextPresentationTimestamp,
+            captured.keyboard,
+            captured.mouse);
+        camera->manipulate(controls);
 
         {
             const float maxRadius = m_plotRadius * 0.98f;
             const float clampRadius = maxRadius * 0.999f;
-            using core_vec_t = std::remove_cv_t<std::remove_reference_t<decltype(camera.getPosition())>>;
-            const auto toHlslVec3 = [](const core_vec_t& v)
-            {
-                return float32_t3(v.x, v.y, v.z);
-            };
-            const auto toCoreVec3 = [](const float32_t3& v)
-            {
-                return core_vec_t(v.x, v.y, v.z);
-            };
-            auto pos = toHlslVec3(camera.getPosition());
+            auto pos = hlsl::_static_cast<hlsl::float32_t3>(camera->getGimbal().getPosition());
             const float dist = length(pos);
             if (dist > maxRadius)
             {
-                const auto target = toHlslVec3(camera.getTarget());
+                const auto target = hlsl::_static_cast<hlsl::float32_t3>(camera->getGimbal().getPosition() + camera->getGimbal().getForward());
                 const auto forward = target - pos;
                 pos = normalize(pos) * clampRadius;
-                camera.setPosition(toCoreVec3(pos));
-                camera.setTarget(toCoreVec3(pos + forward));
+                const auto clampedEye = hlsl::float64_t3(pos.x, pos.y, pos.z);
+                hlsl::math::quaternion<hlsl::float64_t> clampedOrientation;
+                if (ext::cameras::CCameraMathUtilities::tryCreateQuaternionFromLookAt(
+                        clampedEye,
+                        hlsl::float64_t3((pos + forward).x, (pos + forward).y, (pos + forward).z),
+                        hlsl::float64_t3(0.0, 1.0, 0.0),
+                        clampedOrientation))
+                {
+                    camera = core::make_smart_refctd_ptr<ext::cameras::CFPSCamera>(clampedEye, clampedOrientation);
+                }
             }
         }
 
@@ -360,13 +366,8 @@ IQueue::SSubmitInfo::SSemaphoreInfo IESViewer::renderFrame(const std::chrono::mi
         cb->beginDebugMarker("IES::graphics 3D plot");
         cb->beginRenderPass(info3D, IGPUCommandBuffer::SUBPASS_CONTENTS::INLINE);
         {
-            float32_t3x4 viewMatrix;
-            float32_t4x4 viewProjMatrix;
-            // TODO: get rid of legacy matrices
-            {
-                viewMatrix = camera.getViewMatrix();
-                viewProjMatrix = camera.getConcatenatedMatrix();
-            }
+            const float32_t3x4 viewMatrix = hlsl::float32_t3x4(camera->getGimbal().getViewMatrixLH());
+            const float32_t4x4 viewProjMatrix = hlsl::math::linalg::promoted_mul(cameraProjection, viewMatrix);
             const auto viewParams = CSimpleIESRenderer::SViewParams(viewMatrix, viewProjMatrix);
             const auto iesParams = CSimpleIESRenderer::SIESParams({ .radius = m_plotRadius, .ds = m_descriptors[0u].get(), .texID = static_cast<uint16_t>(uiState.activeAssetIx), .mode = uiState.mode.sphere.value, .wireframe = uiState.wireframeEnabled });
 
