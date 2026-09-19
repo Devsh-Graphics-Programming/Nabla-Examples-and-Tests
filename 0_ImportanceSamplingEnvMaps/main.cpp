@@ -306,7 +306,7 @@ public:
 		const auto cameraTarget = hlsl::float64_t3(1.80119, 0.515374, -0.410544);
 		cameraProjection = matrix4SIMD::buildProjectionMatrixPerspectiveFovLH(core::radians(60.0f), float(WIN_W) / WIN_H, 0.03125f, 200.0f);
 		hlsl::math::quaternion<hlsl::float64_t> cameraOrientation;
-		if (!ext::cameras::CCameraMathUtilities::tryBuildLookAtOrientation(cameraPosition, cameraTarget, hlsl::float64_t3(0.0, 1.0, 0.0), cameraOrientation))
+		if (!ext::cameras::CCameraMathUtilities::tryCreateQuaternionFromLookAt(cameraPosition, cameraTarget, hlsl::float64_t3(0.0, 1.0, 0.0), cameraOrientation))
 			return logFail("Could not initialize camera orientation!");
 		camera = core::make_smart_refctd_ptr<ext::cameras::CFPSCamera>(cameraPosition, cameraOrientation);
 

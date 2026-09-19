@@ -1250,7 +1250,7 @@
 				const auto targetPos = trackedTarget.getGimbal().getPosition();
 				const auto desiredForward = normalize(targetPos - cameraPos);
 				quaternion<float64_t> desiredOrientation = hlsl::math::quaternion<float64_t>::identity();
-				if (!CCameraMathUtilities::tryBuildLookAtOrientation(
+				if (!CCameraMathUtilities::tryCreateQuaternionFromLookAt(
 						cameraPos,
 						targetPos,
 						float64_t3(0.0, 1.0, 0.0),

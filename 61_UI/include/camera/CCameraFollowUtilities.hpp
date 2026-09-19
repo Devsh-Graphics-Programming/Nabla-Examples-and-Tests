@@ -284,7 +284,7 @@ inline bool CCameraFollowUtilities::tryBuildFollowPositionGoal(
         return CCameraGoalUtilities::buildCanonicalTargetRelativeGoalFromPosition(outGoal, targetPosition, position);
 
     outGoal.position = position;
-    return CCameraMathUtilities::tryBuildLookAtOrientation(outGoal.position, targetPosition, preferredUp, outGoal.orientation) &&
+    return CCameraMathUtilities::tryCreateQuaternionFromLookAt(outGoal.position, targetPosition, preferredUp, outGoal.orientation) &&
         CCameraGoalUtilities::isGoalFinite(outGoal);
 }
 

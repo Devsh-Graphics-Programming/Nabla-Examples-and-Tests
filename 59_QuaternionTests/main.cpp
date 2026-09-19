@@ -174,14 +174,14 @@ bool eulerAndCameraMathTests(system::ILogger* logger)
             const vec3_t position = vec3_t(F(1), F(2), F(3));
             const vec3_t target = vec3_t(F(-2), F(0.5), F(7));
             quat_t q;
-            check(math_utils_t::tryBuildLookAtOrientation(position, target, up, q), type, "look-at succeeds");
+            check(math_utils_t::tryCreateQuaternionFromLookAt(position, target, up, q), type, "look-at succeeds");
             check(vecEqual(q.transformVector(forward, true), hlsl::normalize(target - position)), type, "look-at faces the target");
             check(hlsl::abs(q.transformVector(right, true).y) <= tolerance, type, "look-at keeps the horizon level");
             check(q.transformVector(up, true).y > F(0), type, "look-at keeps up above the horizon");
 
             // straight down with up = +Y: the up hint is parallel to forward, so the fallback axis decides the roll
             quat_t down;
-            check(math_utils_t::tryBuildLookAtOrientation(vec3_t(F(0), F(5), F(0)), vec3_t(F(0), F(0), F(0)), up, down), type, "look-at straight down succeeds");
+            check(math_utils_t::tryCreateQuaternionFromLookAt(vec3_t(F(0), F(5), F(0)), vec3_t(F(0), F(0), F(0)), up, down), type, "look-at straight down succeeds");
             check(vecEqual(down.transformVector(forward, true), -up), type, "look-at straight down faces -Y");
             check(vecEqual(down.transformVector(right, true), right), type, "look-at straight down keeps right along +X");
             check(vecEqual(down.transformVector(up, true), forward), type, "look-at straight down has up along +Z");

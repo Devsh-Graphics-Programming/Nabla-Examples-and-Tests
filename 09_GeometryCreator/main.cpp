@@ -77,7 +77,7 @@ class GeometryCreatorApp final : public MonoWindowApplication, public BuiltinRes
 				cameraProjection = hlsl::math::thin_lens::lhPerspectiveFovMatrix<float>(core::radians(60.0f), float(m_initialResolution.x) / m_initialResolution.y, 10000.0f, 0.1f);
 
 				hlsl::math::quaternion<hlsl::float64_t> cameraOrientation;
-				if (!ext::cameras::CCameraMathUtilities::tryBuildLookAtOrientation(cameraPosition, cameraTarget, hlsl::float64_t3(0.0, 1.0, 0.0), cameraOrientation))
+				if (!ext::cameras::CCameraMathUtilities::tryCreateQuaternionFromLookAt(cameraPosition, cameraTarget, hlsl::float64_t3(0.0, 1.0, 0.0), cameraOrientation))
 					return logFail("Could not initialize camera orientation!");
 				camera = core::make_smart_refctd_ptr<ext::cameras::CFPSCamera>(cameraPosition, cameraOrientation);
 

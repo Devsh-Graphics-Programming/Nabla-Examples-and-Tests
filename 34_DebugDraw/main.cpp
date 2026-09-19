@@ -60,7 +60,7 @@ public:
 		    cameraProjection = hlsl::math::thin_lens::rhPerspectiveFovMatrix(core::radians(fov), float(WIN_W) / WIN_H, zNear, zFar);
 			const auto cameraEye = hlsl::float64_t3(cameraPosition.x, cameraPosition.y, cameraPosition.z);
 			hlsl::math::quaternion<hlsl::float64_t> cameraOrientation;
-			if (!ext::cameras::CCameraMathUtilities::tryBuildLookAtOrientation(
+			if (!ext::cameras::CCameraMathUtilities::tryCreateQuaternionFromLookAt(
 					cameraEye,
 					hlsl::float64_t3(cameraTarget.x, cameraTarget.y, cameraTarget.z),
 					hlsl::float64_t3(0.0, 1.0, 0.0),

@@ -1113,7 +1113,7 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 				const auto proj = hlsl::math::thin_lens::rhPerspectiveFovMatrix<float>(hlsl::radians(guiControlled.fov), WindowDimensions.x / WindowDimensions.y, guiControlled.zNear, guiControlled.zFar);
 				m_cameraProjection = proj;
 				hlsl::math::quaternion<hlsl::float64_t> cameraOrientation;
-				if (!ext::cameras::CCameraMathUtilities::tryBuildLookAtOrientation(
+				if (!ext::cameras::CCameraMathUtilities::tryCreateQuaternionFromLookAt(
 						cameraPosition, hlsl::float64_t3(0.0, 0.0, 0.0), hlsl::float64_t3(0.0, 1.0, 0.0), cameraOrientation))
 					return logFail("Could not initialize camera orientation!");
 				m_camera = core::make_smart_refctd_ptr<ext::cameras::CFPSCamera>(cameraPosition, cameraOrientation);

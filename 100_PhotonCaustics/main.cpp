@@ -694,7 +694,7 @@ public:
 	inline bool resetCameraPose()
 	{
 		hlsl::math::quaternion<hlsl::float64_t> orientation;
-		if (!ext::cameras::CCameraMathUtilities::tryBuildLookAtOrientation(InitialCamPos, InitialCamTarget, CamUp, orientation))
+		if (!ext::cameras::CCameraMathUtilities::tryCreateQuaternionFromLookAt(InitialCamPos, InitialCamTarget, CamUp, orientation))
 			return false;
 		return m_camera->setPose(ext::cameras::SCameraRigPose{ .position = InitialCamPos, .orientation = orientation });
 	}

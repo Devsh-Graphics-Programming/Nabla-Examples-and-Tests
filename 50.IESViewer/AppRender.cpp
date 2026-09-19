@@ -189,7 +189,7 @@ IQueue::SSubmitInfo::SSemaphoreInfo IESViewer::renderFrame(const std::chrono::mi
                 pos = normalize(pos) * clampRadius;
                 const auto clampedEye = hlsl::float64_t3(pos.x, pos.y, pos.z);
                 hlsl::math::quaternion<hlsl::float64_t> clampedOrientation;
-                if (ext::cameras::CCameraMathUtilities::tryBuildLookAtOrientation(
+                if (ext::cameras::CCameraMathUtilities::tryCreateQuaternionFromLookAt(
                         clampedEye,
                         hlsl::float64_t3((pos + forward).x, (pos + forward).y, (pos + forward).z),
                         hlsl::float64_t3(0.0, 1.0, 0.0),

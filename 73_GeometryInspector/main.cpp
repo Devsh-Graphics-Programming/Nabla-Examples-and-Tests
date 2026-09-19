@@ -665,7 +665,7 @@ class GeometryInspectorApp final : public MonoWindowApplication, public BuiltinR
 				const auto center = (bound.minVx+bound.maxVx)*0.5f;
 				const auto cameraEye = hlsl::float64_t3(pos.x, pos.y, pos.z);
 				hlsl::math::quaternion<hlsl::float64_t> cameraOrientation;
-				if (!ext::cameras::CCameraMathUtilities::tryBuildLookAtOrientation(
+				if (!ext::cameras::CCameraMathUtilities::tryCreateQuaternionFromLookAt(
 						cameraEye,
 						hlsl::float64_t3(center.x, center.y, center.z),
 						hlsl::float64_t3(0.0, 1.0, 0.0),

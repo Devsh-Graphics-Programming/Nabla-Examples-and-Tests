@@ -551,7 +551,7 @@ public:
 			m_cameraProjection = proj;
 			const auto cameraEye = hlsl::float64_t3(cameraPosition.x, cameraPosition.y, cameraPosition.z);
 			hlsl::math::quaternion<hlsl::float64_t> cameraOrientation;
-			if (!ext::cameras::CCameraMathUtilities::tryBuildLookAtOrientation(
+			if (!ext::cameras::CCameraMathUtilities::tryCreateQuaternionFromLookAt(
 					cameraEye, hlsl::float64_t3(0.0, 0.0, 0.0), hlsl::float64_t3(0.0, 1.0, 0.0), cameraOrientation))
 				return logFail("Could not initialize camera orientation!");
 			m_camera = core::make_smart_refctd_ptr<ext::cameras::CFPSCamera>(cameraEye, cameraOrientation);
