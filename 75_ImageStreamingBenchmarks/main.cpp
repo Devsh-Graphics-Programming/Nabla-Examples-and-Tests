@@ -16,13 +16,15 @@ using namespace nbl::examples;
 
 #include "app_resources/common.hlsl"
 
-class ImageUploadBenchmarkApp final : public application_templates::MonoDeviceApplication, public BuiltinResourcesApplication
+class ImageStreamingBenchmarksApp final : public application_templates::MonoDeviceApplication, public BuiltinResourcesApplication
 {
 	using device_base_t = application_templates::MonoDeviceApplication;
 	using asset_base_t = BuiltinResourcesApplication;
 
+	constexpr static inline uint32_t IUTILITIES_FRAMES = 100u;
+
 public:
-	ImageUploadBenchmarkApp(const path& _localInputCWD, const path& _localOutputCWD, const path& _sharedInputCWD, const path& _sharedOutputCWD) :
+	ImageStreamingBenchmarksApp(const path& _localInputCWD, const path& _localOutputCWD, const path& _sharedInputCWD, const path& _sharedOutputCWD) :
 		system::IApplicationFramework(_localInputCWD, _localOutputCWD, _sharedInputCWD, _sharedOutputCWD) {}
 
 	video::IAPIConnection::SFeatures getAPIFeaturesToEnable() override
@@ -44,7 +46,7 @@ public:
 		constexpr uint32_t TILES_PER_FRAME = STAGING_BUFFER_SIZE / (TILE_SIZE_BYTES * FRAMES_IN_FLIGHT);
 		constexpr uint32_t TOTAL_FRAMES = 1000;
 
-		m_logger->log("GPU Memory Transfer Benchmark", ILogger::ELL_PERFORMANCE);
+		m_logger->log("Image Streaming Benchmarks", ILogger::ELL_PERFORMANCE);
 		m_logger->log("Tile size: %ux%u (%u KB)", ILogger::ELL_PERFORMANCE, TILE_SIZE, TILE_SIZE, TILE_SIZE_BYTES / 1024);
 		m_logger->log("Staging buffer: %u MB", ILogger::ELL_PERFORMANCE, STAGING_BUFFER_SIZE / (1024 * 1024));
 		m_logger->log("Tiles per frame: %u", ILogger::ELL_PERFORMANCE, TILES_PER_FRAME);
@@ -89,7 +91,7 @@ public:
 			imgParams.arrayLayers = 1u;
 			imgParams.samples = IImage::E_SAMPLE_COUNT_FLAGS::ESCF_1_BIT;
 			imgParams.tiling = video::IGPUImage::TILING::OPTIMAL;
-			imgParams.usage = asset::IImage::EUF_TRANSFER_DST_BIT | asset::IImage::EUF_STORAGE_BIT;
+			imgParams.usage = asset::IImage::EUF_TRANSFER_DST_BIT | asset::IImage::EUF_TRANSFER_SRC_BIT | asset::IImage::EUF_STORAGE_BIT;
 			if (m_physicalDevice->getLimits().hostImageCopy)
 				imgParams.usage |= asset::IImage::EUF_HOST_TRANSFER_BIT;
 			imgParams.preinitialized = false;
@@ -456,6 +458,32 @@ private:
 			m_logger->log("\n--- HostImageCopyEXT multithreaded ---", ILogger::ELL_PERFORMANCE);
 			auto rHostMT = runBenchmarkHostImageCopyMT("HostImageCopy MT", m_destinationImage.get(), TILE_SIZE, TILE_SIZE_BYTES, TILES_PER_FRAME, TOTAL_FRAMES, 0);
 			results.push_back({ "HostImageCopy MT", rHostMT.wallGBps, rHostMT.gpuGBps, rHostMT.memcpyGBps });
+		}
+
+		{
+			m_logger->log("\n--- IUtilities upload and download (%u frames) ---", ILogger::ELL_PERFORMANCE, IUTILITIES_FRAMES);
+
+			auto utils64 = IUtilities::create(smart_refctd_ptr(m_device), smart_refctd_ptr(m_logger));
+			if (utils64)
+			{
+				auto r = runBenchmarkIUtilities("IUtilities (64 MiB)", utils64.get(), m_destinationImage.get(),
+					TILE_SIZE, TILE_SIZE_BYTES, TILES_PER_FRAME, FRAMES_IN_FLIGHT, IUTILITIES_FRAMES, m_queue);
+				results.push_back({ "IUtilities upload (64 MiB)", r.upload.wallGBps, r.upload.gpuGBps, 0.0 });
+				results.push_back({ "IUtilities download (64 MiB)", r.download.wallGBps, r.download.gpuGBps, 0.0 });
+			}
+			else
+				m_logger->log("Failed to create the 64 MiB IUtilities!", ILogger::ELL_ERROR);
+
+			auto utils4 = IUtilities::create(smart_refctd_ptr(m_device), smart_refctd_ptr(m_logger), 4u << 20, 4u << 20);
+			if (utils4)
+			{
+				auto r = runBenchmarkIUtilities("IUtilities (4 MiB)", utils4.get(), m_destinationImage.get(),
+					TILE_SIZE, TILE_SIZE_BYTES, TILES_PER_FRAME, FRAMES_IN_FLIGHT, IUTILITIES_FRAMES, m_queue);
+				results.push_back({ "IUtilities upload (4 MiB)", r.upload.wallGBps, r.upload.gpuGBps, 0.0 });
+				results.push_back({ "IUtilities download (4 MiB)", r.download.wallGBps, r.download.gpuGBps, 0.0 });
+			}
+			else
+				m_logger->log("Failed to create the 4 MiB IUtilities!", ILogger::ELL_ERROR);
 		}
 
 		//Summary table
@@ -1390,6 +1418,264 @@ private:
 		return result;
 	}
 
+	struct IUtilitiesBenchResults
+	{
+		BenchResult upload;
+		BenchResult download;
+		bool roundTripOk = false;
+	};
+
+	IUtilitiesBenchResults runBenchmarkIUtilities(
+		const char* strategyName,
+		IUtilities* utils,
+		IGPUImage* destinationImage,
+		uint32_t tileSize,
+		uint32_t tileSizeBytes,
+		uint32_t tilesPerFrame,
+		uint32_t framesInFlight,
+		uint32_t totalFrames,
+		IQueue* queue)
+	{
+		IUtilitiesBenchResults result = {};
+
+		smart_refctd_ptr<ISemaphore> timelineSemaphore = m_device->createSemaphore(0);
+		if (!timelineSemaphore)
+		{
+			m_logger->log("%s: failed to create the scratch semaphore", ILogger::ELL_ERROR, strategyName);
+			return result;
+		}
+
+		smart_refctd_ptr<IQueryPool> queryPool;
+		{
+			IQueryPool::SCreationParams queryPoolParams = {};
+			queryPoolParams.queryType = IQueryPool::TYPE::TIMESTAMP;
+			queryPoolParams.queryCount = framesInFlight * 2;
+			queryPoolParams.pipelineStatisticsFlags = IQueryPool::PIPELINE_STATISTICS_FLAGS::NONE;
+			queryPool = m_device->createQueryPool(queryPoolParams);
+		}
+
+		auto commandPool = m_device->createCommandPool(queue->getFamilyIndex(), IGPUCommandPool::CREATE_FLAGS::RESET_COMMAND_BUFFER_BIT);
+		std::vector<smart_refctd_ptr<IGPUCommandBuffer>> commandBuffers(framesInFlight);
+		if (!commandPool || !commandPool->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY, commandBuffers))
+		{
+			m_logger->log("%s: failed to create the scratch command buffers", ILogger::ELL_ERROR, strategyName);
+			return result;
+		}
+
+		std::vector<IQueue::SSubmitInfo::SCommandBufferInfo> scratchInfos(framesInFlight);
+		for (uint32_t i = 0; i < framesInFlight; i++)
+			scratchInfos[i] = { .cmdbuf = commandBuffers[i].get() };
+
+		if (!commandBuffers[0]->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT))
+		{
+			m_logger->log("%s: failed to begin the first scratch command buffer", ILogger::ELL_ERROR, strategyName);
+			return result;
+		}
+
+		SIntendedSubmitInfo intended;
+		intended.queue = queue;
+		intended.scratchCommandBuffers = scratchInfos;
+		intended.scratchSemaphore = {
+			.semaphore = timelineSemaphore.get(),
+			.value = 0,
+			.stageMask = PIPELINE_STAGE_FLAGS::COPY_BIT
+		};
+		intended.initialScratchValue = 0;
+
+		const IQueue::SSubmitInfo::SCommandBufferInfo* scratch = intended.valid();
+		if (!scratch)
+		{
+			m_logger->log("%s: %s", ILogger::ELL_ERROR, strategyName, SIntendedSubmitInfo::ErrorText);
+			return result;
+		}
+
+		const uint32_t imageWidth = destinationImage->getCreationParameters().extent.width;
+		const uint32_t partitionSize = tilesPerFrame * tileSizeBytes;
+
+		std::vector<uint8_t> cpuSourceData(partitionSize);
+		{
+			unsigned seed = std::chrono::system_clock::now().time_since_epoch().count();
+			std::mt19937 g(seed);
+			uint32_t* data = reinterpret_cast<uint32_t*>(cpuSourceData.data());
+			for (uint32_t i = 0; i < partitionSize / sizeof(uint32_t); i++)
+				data[i] = g();
+		}
+
+		std::vector<IImage::SBufferCopy> regions(tilesPerFrame);
+		generateTileCopyRegions(regions.data(), tilesPerFrame, tileSize, tileSizeBytes, imageWidth, 0u);
+
+		{
+			IGPUCommandBuffer::SImageMemoryBarrier<IGPUCommandBuffer::SOwnershipTransferBarrier> initBarrier = {};
+			initBarrier.oldLayout = IImage::LAYOUT::UNDEFINED;
+			initBarrier.newLayout = IImage::LAYOUT::GENERAL;
+			initBarrier.image = destinationImage;
+			initBarrier.subresourceRange.aspectMask = IImage::E_ASPECT_FLAGS::EAF_COLOR_BIT;
+			initBarrier.subresourceRange.baseMipLevel = 0;
+			initBarrier.subresourceRange.levelCount = 1;
+			initBarrier.subresourceRange.baseArrayLayer = 0;
+			initBarrier.subresourceRange.layerCount = 1;
+			initBarrier.barrier.dep.srcAccessMask = ACCESS_FLAGS::NONE;
+			initBarrier.barrier.dep.dstAccessMask = ACCESS_FLAGS::TRANSFER_WRITE_BIT;
+			initBarrier.barrier.dep.srcStageMask = PIPELINE_STAGE_FLAGS::NONE;
+			initBarrier.barrier.dep.dstStageMask = PIPELINE_STAGE_FLAGS::COPY_BIT;
+			scratch->cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, { .imgBarriers = {&initBarrier, 1} });
+		}
+
+		const float timestampPeriod = m_physicalDevice->getLimits().timestampPeriodInNanoSeconds;
+		const double totalGB = ((double)totalFrames * partitionSize) / (1024.0 * 1024.0 * 1024.0);
+		const core::bitflag queryFlags = core::bitflag(IQueryPool::RESULTS_FLAGS::_64_BIT) | core::bitflag(IQueryPool::RESULTS_FLAGS::WAIT_BIT);
+		std::vector<uint64_t> timestamps(framesInFlight * 2);
+
+		auto blockOnScratch = [&]()
+		{
+			const ISemaphore::SWaitInfo wait = { .semaphore = timelineSemaphore.get(), .value = intended.scratchSemaphore.value };
+			m_device->blockForSemaphores({ &wait, 1 });
+		};
+
+		auto extrapolatedGpuSeconds = [&]() -> double
+		{
+			m_device->getQueryPoolResults(queryPool.get(), 0, framesInFlight * 2, timestamps.data(), sizeof(uint64_t), queryFlags);
+			uint64_t totalGpuTicks = 0;
+			for (uint32_t i = 0; i < framesInFlight; i++)
+				totalGpuTicks += timestamps[i * 2 + 1] - timestamps[i * 2 + 0];
+			const double sampledGpuTimeSeconds = (totalGpuTicks * timestampPeriod) / 1e9;
+			return (sampledGpuTimeSeconds / framesInFlight) * totalFrames;
+		};
+
+		auto startTime = std::chrono::high_resolution_clock::now();
+		for (uint32_t frame = 0; frame < totalFrames; frame++)
+		{
+			const uint32_t queryStartIndex = (frame % framesInFlight) * 2;
+			IGPUCommandBuffer* cmdbuf = scratch->cmdbuf;
+
+			cmdbuf->resetQueryPool(queryPool.get(), queryStartIndex, 2);
+
+			IGPUCommandBuffer::SImageMemoryBarrier<IGPUCommandBuffer::SOwnershipTransferBarrier> barrier = {};
+			barrier.oldLayout = IImage::LAYOUT::GENERAL;
+			barrier.newLayout = IImage::LAYOUT::GENERAL;
+			barrier.image = destinationImage;
+			barrier.subresourceRange.aspectMask = IImage::E_ASPECT_FLAGS::EAF_COLOR_BIT;
+			barrier.subresourceRange.baseMipLevel = 0;
+			barrier.subresourceRange.levelCount = 1;
+			barrier.subresourceRange.baseArrayLayer = 0;
+			barrier.subresourceRange.layerCount = 1;
+			barrier.barrier.dep.srcAccessMask = ACCESS_FLAGS::TRANSFER_WRITE_BIT;
+			barrier.barrier.dep.dstAccessMask = ACCESS_FLAGS::TRANSFER_WRITE_BIT;
+			barrier.barrier.dep.srcStageMask = PIPELINE_STAGE_FLAGS::ALL_TRANSFER_BITS;
+			barrier.barrier.dep.dstStageMask = PIPELINE_STAGE_FLAGS::ALL_TRANSFER_BITS;
+			cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, { .imgBarriers = {&barrier, 1} });
+
+			cmdbuf->writeTimestamp(PIPELINE_STAGE_FLAGS::COPY_BIT, queryPool.get(), queryStartIndex + 0);
+
+			if (!utils->updateImageViaStagingBuffer(intended, cpuSourceData.data(), asset::E_FORMAT::EF_R8G8B8A8_UNORM,
+				destinationImage, IImage::LAYOUT::GENERAL, regions))
+			{
+				m_logger->log("%s upload: failed at frame %u", ILogger::ELL_ERROR, strategyName, frame);
+				return result;
+			}
+
+			scratch = intended.getCommandBufferForRecording();
+			scratch->cmdbuf->writeTimestamp(PIPELINE_STAGE_FLAGS::COPY_BIT, queryPool.get(), queryStartIndex + 1);
+
+			if (intended.overflowSubmit(scratch) != IQueue::RESULT::SUCCESS)
+			{
+				m_logger->log("%s upload: submit failed at frame %u", ILogger::ELL_ERROR, strategyName, frame);
+				return result;
+			}
+		}
+		auto endTime = std::chrono::high_resolution_clock::now();
+
+		blockOnScratch();
+		{
+			const uint64_t uploadSubmits = intended.scratchSemaphore.value;
+			const double elapsedSeconds = std::chrono::duration<double>(endTime - startTime).count();
+			const double gpuSeconds = extrapolatedGpuSeconds();
+			result.upload.wallGBps = totalGB / elapsedSeconds;
+			result.upload.gpuGBps = totalGB / gpuSeconds;
+			m_logger->log("%s upload: %.2f GB/s wall, %.2f GB/s GPU (%u frames, %.3f s, %llu submits)", ILogger::ELL_PERFORMANCE,
+				strategyName, result.upload.wallGBps, result.upload.gpuGBps, totalFrames, elapsedSeconds, (unsigned long long)uploadSubmits);
+		}
+
+		{
+			IGPUCommandBuffer::SImageMemoryBarrier<IGPUCommandBuffer::SOwnershipTransferBarrier> barrier = {};
+			barrier.oldLayout = IImage::LAYOUT::GENERAL;
+			barrier.newLayout = IImage::LAYOUT::GENERAL;
+			barrier.image = destinationImage;
+			barrier.subresourceRange.aspectMask = IImage::E_ASPECT_FLAGS::EAF_COLOR_BIT;
+			barrier.subresourceRange.baseMipLevel = 0;
+			barrier.subresourceRange.levelCount = 1;
+			barrier.subresourceRange.baseArrayLayer = 0;
+			barrier.subresourceRange.layerCount = 1;
+			barrier.barrier.dep.srcAccessMask = ACCESS_FLAGS::TRANSFER_WRITE_BIT;
+			barrier.barrier.dep.dstAccessMask = ACCESS_FLAGS::TRANSFER_READ_BIT;
+			barrier.barrier.dep.srcStageMask = PIPELINE_STAGE_FLAGS::ALL_TRANSFER_BITS;
+			barrier.barrier.dep.dstStageMask = PIPELINE_STAGE_FLAGS::ALL_TRANSFER_BITS;
+			scratch->cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, { .imgBarriers = {&barrier, 1} });
+		}
+
+		std::vector<uint8_t> dest(partitionSize, 0u);
+
+		// consumers latched on the scratch semaphore write into `dest`, they must run before `dest` goes out of scope
+		auto abortDownload = [&]()
+		{
+			scratch = intended.getCommandBufferForRecording();
+			intended.overflowSubmit(scratch);
+			blockOnScratch();
+			while (utils->getDefaultDownStreamingBuffer()->cull_frees() != 0u) {}
+			scratch->cmdbuf->end();
+		};
+
+		const uint64_t downloadFirstSubmit = intended.scratchSemaphore.value;
+		startTime = std::chrono::high_resolution_clock::now();
+		for (uint32_t frame = 0; frame < totalFrames; frame++)
+		{
+			const uint32_t queryStartIndex = (frame % framesInFlight) * 2;
+			IGPUCommandBuffer* cmdbuf = scratch->cmdbuf;
+
+			cmdbuf->resetQueryPool(queryPool.get(), queryStartIndex, 2);
+			cmdbuf->writeTimestamp(PIPELINE_STAGE_FLAGS::COPY_BIT, queryPool.get(), queryStartIndex + 0);
+
+			if (!utils->downloadImageViaStagingBuffer(intended, destinationImage, IImage::LAYOUT::GENERAL, dest.data(), regions))
+			{
+				m_logger->log("%s download: failed at frame %u", ILogger::ELL_ERROR, strategyName, frame);
+				abortDownload();
+				return result;
+			}
+
+			scratch = intended.getCommandBufferForRecording();
+			scratch->cmdbuf->writeTimestamp(PIPELINE_STAGE_FLAGS::COPY_BIT, queryPool.get(), queryStartIndex + 1);
+
+			if (intended.overflowSubmit(scratch) != IQueue::RESULT::SUCCESS)
+			{
+				m_logger->log("%s download: submit failed at frame %u", ILogger::ELL_ERROR, strategyName, frame);
+				abortDownload();
+				return result;
+			}
+		}
+		endTime = std::chrono::high_resolution_clock::now();
+
+		blockOnScratch();
+		{
+			const uint64_t downloadSubmits = intended.scratchSemaphore.value - downloadFirstSubmit;
+			const double elapsedSeconds = std::chrono::duration<double>(endTime - startTime).count();
+			const double gpuSeconds = extrapolatedGpuSeconds();
+			result.download.wallGBps = totalGB / elapsedSeconds;
+			result.download.gpuGBps = totalGB / gpuSeconds;
+			m_logger->log("%s download: %.2f GB/s wall, %.2f GB/s GPU (%u frames, %.3f s, %llu submits)", ILogger::ELL_PERFORMANCE,
+				strategyName, result.download.wallGBps, result.download.gpuGBps, totalFrames, elapsedSeconds, (unsigned long long)downloadSubmits);
+		}
+
+		while (utils->getDefaultDownStreamingBuffer()->cull_frees() != 0u) {}
+
+		result.roundTripOk = memcmp(dest.data(), cpuSourceData.data(), partitionSize) == 0;
+		m_logger->log("%s round-trip verification: %s", result.roundTripOk ? ILogger::ELL_PERFORMANCE : ILogger::ELL_ERROR,
+			strategyName, result.roundTripOk ? "PASS" : "FAIL");
+
+		scratch->cmdbuf->end();
+
+		return result;
+	}
+
 	bool writeImagePNG(const char* path, const uint8_t* pixels, uint32_t width, uint32_t height)
 	{
 		ICPUImage::SCreationParams imgParams = {};
@@ -1470,4 +1756,4 @@ private:
 	}
 };
 
-NBL_MAIN_FUNC(ImageUploadBenchmarkApp)
+NBL_MAIN_FUNC(ImageStreamingBenchmarksApp)

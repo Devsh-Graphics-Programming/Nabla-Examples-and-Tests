@@ -1,6 +1,6 @@
-# Image Upload Benchmark
+# Image Streaming Benchmarks
 
-Measures the throughput of uploading 128x128 pixel tiles into a 2048x2048 `EF_R8G8B8A8_UNORM` image with `OPTIMAL` tiling in `DEVICE_LOCAL` memory. Every permutation moves the same payload: 256 tiles (16 MiB) per frame, 1000 frames, 15.6 GiB total. 
+Measures the throughput of streaming 128x128 pixel tiles into and out of a 2048x2048 `EF_R8G8B8A8_UNORM` image with `OPTIMAL` tiling in `DEVICE_LOCAL` memory. Every permutation moves the same payload: 256 tiles (16 MiB) per frame, 1000 frames, 15.6 GiB total. The `IUtilities` rows run 100 frames.
 
 ## Benchmark permutations
 
@@ -31,9 +31,19 @@ The `VK_EXT_host_image_copy` path, run only when the `hostImageCopy` limit is en
 
 Same entry point with `EHICF_MEMCPY_BIT` and a single region spanning the whole subresource. The host buffer already holds the image's raw optimal tiling bytes (see below), so the driver performs a flat memcpy with no swizzle. The spec requires MEMCPY copies to cover the full subresource with zero `imageOffset` and zero `memoryRowLength`/`memoryImageHeight`.
 
+### IUtilities upload and download
+
+`IUtilities::updateImageViaStagingBuffer` and `IUtilities::downloadImageViaStagingBuffer`, the engine's general purpose streaming path. Four rows: upload and download through an `IUtilities` with the default 64 MiB streaming buffers, and again through one created with 4 MiB upload and 4 MiB download buffers. The same 256 tile regions are passed every frame. Both functions chop the regions with `ImageRegionIterator` to fit whatever the streaming buffer can hand out; the 4 MiB pair cannot hold one 16 MiB frame, so every frame becomes about four chunks with an `overflowSubmit` between them. The submit count per direction is logged next to the throughput.
+
+The frame loop drives one `SIntendedSubmitInfo` with 4 scratch command buffers and a timeline semaphore. Per frame: write the start timestamp, call the utility, fetch `getCommandBufferForRecording` again since an internal overflow may have rotated the scratch buffer, write the end timestamp, `overflowSubmit`. That submit is the frame's own submit and the frames-in-flight throttle. Upload runs the CPU format filter into staging, so it is CPU bound, especially in Debug. Download records `copyImageToBuffer` plus a `HOST_READ` barrier and latches a `CDownstreamingDataConsumer` on the semaphore, which memcpys the rows into the destination vector when the streaming buffer is later polled.
+
+After the download loop `cull_frees` is drained until the last consumer has run, then the destination vector is memcmp'd against the uploaded source and `round-trip verification: PASS` or `FAIL` is logged per utility.
+
+The columns mean something different for these rows. Wall time is measured the same way, but the GPU timestamps bracket the whole utility call, so when the utility overflows they span several submits and the host stalls between them. The GPU column is a true GPU number only for frames that fit in one allocation; for the 4 MiB rows it is close to wall time. The Memcpy column is zero since the memcpy happens inside the utility.
+
 ## How the numbers are computed
 
-The queue permutations run a frames-in-flight loop:
+The queue permutations (everything except the host image copy and `IUtilities` rows) run a frames-in-flight loop:
 
 - 4 command pools/buffers and one timeline semaphore. Before reusing a slot the CPU blocks until the submit from 4 frames ago completes, so at most 4 frames are in flight.
 - The 64 MiB staging buffer is split into 4 partitions of 16 MiB. Frame N writes partition N mod 4 while older frames still execute.
