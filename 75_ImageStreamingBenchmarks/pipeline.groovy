@@ -2,9 +2,9 @@ import org.DevshGraphicsProgramming.Agent
 import org.DevshGraphicsProgramming.BuilderInfo
 import org.DevshGraphicsProgramming.IBuilder
 
-class CImageUploadBenchmark extends IBuilder
+class CImageStreamingBenchmarks extends IBuilder
 {
-	public CImageUploadBenchmark(Agent _agent, _info)
+	public CImageStreamingBenchmarks(Agent _agent, _info)
 	{
 		super(_agent, _info)
 	}
@@ -44,7 +44,7 @@ class CImageUploadBenchmark extends IBuilder
 
 def create(Agent _agent, _info)
 {
-	return new CStreamingAndBufferDeviceAddressBuilder(_agent, _info)
+	return new CImageStreamingBenchmarks(_agent, _info)
 }
 
 return this
