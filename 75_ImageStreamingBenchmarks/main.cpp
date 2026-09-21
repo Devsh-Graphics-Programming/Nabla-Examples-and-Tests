@@ -1615,6 +1615,16 @@ private:
 
 		std::vector<uint8_t> dest(partitionSize, 0u);
 
+		// consumers latched on the scratch semaphore write into `dest`, they must run before `dest` goes out of scope
+		auto abortDownload = [&]()
+		{
+			scratch = intended.getCommandBufferForRecording();
+			intended.overflowSubmit(scratch);
+			blockOnScratch();
+			while (utils->getDefaultDownStreamingBuffer()->cull_frees() != 0u) {}
+			scratch->cmdbuf->end();
+		};
+
 		const uint64_t downloadFirstSubmit = intended.scratchSemaphore.value;
 		startTime = std::chrono::high_resolution_clock::now();
 		for (uint32_t frame = 0; frame < totalFrames; frame++)
@@ -1628,6 +1638,7 @@ private:
 			if (!utils->downloadImageViaStagingBuffer(intended, destinationImage, IImage::LAYOUT::GENERAL, dest.data(), regions))
 			{
 				m_logger->log("%s download: failed at frame %u", ILogger::ELL_ERROR, strategyName, frame);
+				abortDownload();
 				return result;
 			}
 
@@ -1637,6 +1648,7 @@ private:
 			if (intended.overflowSubmit(scratch) != IQueue::RESULT::SUCCESS)
 			{
 				m_logger->log("%s download: submit failed at frame %u", ILogger::ELL_ERROR, strategyName, frame);
+				abortDownload();
 				return result;
 			}
 		}
