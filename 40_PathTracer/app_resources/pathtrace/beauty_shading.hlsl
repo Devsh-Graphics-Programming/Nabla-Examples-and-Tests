@@ -243,13 +243,6 @@ void raygen()
     SReservoir initialReservoir;
     initialReservoirsPtr.get(linearIdx, initialReservoir);
 
-    if (false)  // TODO ReSTIR: check roughness greater than threshold
-    {
-        setReservoirs(currentReservoirsPtr, linearIdx, 0, initialReservoir);
-        setReservoirs(currentReservoirsPtr, linearIdx, 1, initialReservoir);
-        return;
-    }
-
     // don't advance sample?
     SPixelSamplingInfo samplingInfo = advanceSampleCount(launchID, 0u, uint16_t(pc.sensorDynamics.keepAccumulating), pc.sensorDynamics.maxSPP);
     decltype(samplingInfo.randgen) randgen = samplingInfo.randgen;
@@ -360,7 +353,7 @@ void raygen()
         const uint32_t maxSpatialIteration = 3u;
 
         const uint32_t increment = (sampleCount + maxSpatialIteration - 1) / maxSpatialIteration;
-        const uint32_t offset = hlsl::round(randgen(sequenceProtoDim++, sampleIndex).x * (increment - 1));
+        const uint32_t baseOffset = hlsl::round(randgen(sequenceProtoDim++, sampleIndex).x * (increment - 1));
 
         float32_t3 positionList[10];
         float32_t3 normalList[10];
@@ -376,13 +369,13 @@ void raygen()
         BdaAccessor<uint32_t> cellStoragePtr = BdaAccessor<uint32_t>::create(_csptr);
 
         uint32_t reuseID = 0u;
-        uint32_t count = 0u;
-        for (uint32_t i = 0u; i < sampleCount; i += increment)  // TODO: could probably restructure into   for (uint32_t sampleIx = 0u; sampleIx < maxSpatialIteration; sampleIx++) -- i = increment * sampleIx
+        NBL_UNROLL
+        for (uint32_t count = 0u; count < maxSpatialIteration; count++)
         {
-            count++;
+            uint32_t sampleOffset = increment * count;
 
             uint32_t neighborPixelIndex;
-            cellStoragePtr.get(cellBaseIdx + (offset + i) % sampleCount, neighborPixelIndex);
+            cellStoragePtr.get(cellBaseIdx + (baseOffset + sampleOffset) % sampleCount, neighborPixelIndex);
             SReservoir neighborReservoir = getReservoirs(previousReservoirsPtr, neighborPixelIndex, (count + 1u) % 2);
 
             if (neighborReservoir.M <= uint16_t(0u) || hlsl::dot(spatialReservoir.vNormal, neighborReservoir.vNormal) < NormalCompareThreshold)
@@ -392,7 +385,7 @@ void raygen()
 
             float32_t3 offsetB = neighborReservoir.sPosition - neighborReservoir.vPosition;
             float32_t3 offsetA = neighborReservoir.sPosition - spatialReservoir.vPosition;
-                // Discard back-face.
+            // Discard back-face.
             if (hlsl::dot(spatialReservoir.vNormal, offsetA) <= 0.f)
                 targetPdf = 0.f;
 
