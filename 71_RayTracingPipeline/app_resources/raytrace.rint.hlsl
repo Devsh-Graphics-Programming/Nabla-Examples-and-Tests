@@ -34,7 +34,7 @@ void main()
     ray.origin = spirv::WorldRayOriginKHR;
     ray.direction = spirv::WorldRayDirectionKHR;
 
-    const int primID = spirv::PrimitiveId;
+    const uint32_t primID = spirv::PrimitiveId;
 
     const static uint64_t SProceduralGeomInfoAlignment = nbl::hlsl::alignment_of_v<STriangleGeomInfo>;
     // Sphere data
