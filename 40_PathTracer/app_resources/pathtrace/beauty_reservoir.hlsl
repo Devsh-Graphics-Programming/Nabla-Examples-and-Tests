@@ -276,19 +276,7 @@ void raygen()
 
         SPathState pathState = SPathState::create(launchID.xy, lastNoRussianRouletteDepth);
 
-        if (primaryMissed)
-        {
-            const SEnvSample _sample = nbl::this_example::NextEventEstimator::shadeEnvmap(primaryRayDir, 0.f);
-            color = spectral_t(_sample.color);
-            aovs = aovs + _sample.aov * rcpSamplesThisFrame;
-            transparency += rcpSamplesThisFrame;
-
-            if (pathState.currentVertexIndex < pathState.rcVertexLength)
-                pathState.prefixPathRadiance = spectral_t(_sample.color);
-            else
-                pathState.rcVertexRadiance = spectral_t(_sample.color);
-        }
-        else // trace further rays
+        if (!primaryMissed)
         {
             //
             MaxContributionEstimator contribEstimator = MaxContributionEstimator::create(unpacked16BitPC.rrThroughputWeights);

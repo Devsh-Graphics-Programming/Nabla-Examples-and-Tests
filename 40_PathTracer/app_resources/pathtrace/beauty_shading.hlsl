@@ -595,7 +595,7 @@ void raygen()
                     const bool shadowHitsEmitter = !spirv::hitObjectIsMissEXT(shadowHit) && resolveEmitterID(spirv::hitObjectGetInstanceCustomIndexEXT(shadowHit), spirv::hitObjectGetGeometryIndexEXT(shadowHit)) == nee.pickedEmitterID;
 
                     if (shadowHitsEmitter)
-                        color += nee.contribution * albedo;
+                        color += nee.contribution;  // we only want illumination value, so don't apply diffuse reflectance
                 }
             }
         }
