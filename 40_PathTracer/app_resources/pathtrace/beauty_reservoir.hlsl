@@ -301,7 +301,6 @@ void raygen()
             aovThroughput.clear(rcpSamplesThisFrame);
 
             pathState.direction = primaryRayDir;
-            pathState.pdf = 1.0f;
 
             NBL_HLSL_LOOP
             for (uint16_t depth = 1; true; depth++) // ideally peel this loop once
@@ -325,7 +324,7 @@ void raygen()
 
                 // TODO: possible SER point based on NEE status, and material flags
 
-                const bool isDI = pathState.currentVertexIndex == 1u;
+                const bool isFirstBounce = pathState.currentVertexIndex == 1u;
 
                 // TODO: do after the emissive part
                 // TODO: get AoVs from material and emission
@@ -348,13 +347,10 @@ void raygen()
                     spectral_t emission = neeEstimator.shadeEmission(emitterIdx, closestInfo.hitPos, otherTechniqueHeuristic, thp_curr);
                     color += emission;
                     
-                    if (pathState.currentVertexIndex != 2)  // TODO: double check this, we don't want emission on 1st and 2nd bounce?
-                    {
-                        if (pathState.currentVertexIndex <= pathState.rcVertexLength && pathState.currentVertexIndex > 1)
-                            pathState.prefixPathRadiance += emission;
-                        else if (pathState.currentVertexIndex > pathState.rcVertexLength)
-                            pathState.rcVertexRadiance += emission;
-                    }
+                    if (pathState.currentVertexIndex <= pathState.rcVertexLength && pathState.currentVertexIndex > 1)
+                        pathState.prefixPathRadiance += emission;
+                    else if (pathState.currentVertexIndex > pathState.rcVertexLength)
+                        pathState.rcVertexRadiance += emission;
                 }
 
                 const bool canConnect = pathState.isLastVertexRough && pathState.currentVertexIndex == pathState.rcVertexLength;
@@ -363,7 +359,6 @@ void raygen()
                 {
                     pathState.rcVertexPosition = closestInfo.hitPos;
                     pathState.rcVertexNormal = shadingNormal;
-                    pathState.rcPdf = pathState.pdf;
                     pathState.throughput = hlsl::promote<spectral_t>(1.f); // reset at reconnect vertex
                 }
 
@@ -446,7 +441,7 @@ void raygen()
                             const spectral_t shadowedEmission = nee.contribution * albedo;
                             color += shadowedEmission;
 
-                            if (isDI)   // TODO once not using color var, move this condition up more levels
+                            if (isFirstBounce)   // TODO once not using color var, move this condition up more levels
                             {
                                 if (pathState.currentVertexIndex < pathState.rcVertexLength)
                                     pathState.prefixPathRadiance += shadowedEmission;
@@ -476,11 +471,10 @@ void raygen()
                     // Do I need to check `_sample.isValid()` myself before calling `forwardWeight`?
                     const quotient_weight_type qAw = diffuse.quotientAndWeight(bxdfSample, interaction, cache);
                     const float forwardWeight = qAw.weight();
-
-                    pathState.direction = bxdfSample.getL().getDirection();
-                    pathState.pdf = forwardWeight;
                     if (forwardWeight < 0.00000001f)
                         break;
+
+                    pathState.direction = bxdfSample.getL().getDirection();
 
                     // TODO ReSTIR: check roughness greater than threshold and not specular/delta bounce
                     pathState.isLastVertexRough = true;
@@ -527,7 +521,7 @@ void raygen()
                             aovs = aovs + _sample.aov * aovThroughput;
                             transparency += aovThroughput.transparency;
 
-                            if (isDI)
+                            if (isFirstBounce)
                             {
                                 if (pathState.currentVertexIndex < pathState.rcVertexLength)
                                     pathState.prefixPathRadiance += _sample.color * thp_curr;
@@ -556,8 +550,7 @@ void raygen()
             rcL.direction = pathState.rcVertexPosition - pathState.preRcHitPosition;
             light_sample_t reconnSample = light_sample_t::create(rcL, pathState.preRcNormal);
             typename brdf_t::isocache_type cache;
-            // TODO probably don't need to assign pathState.pdf elsewhere above
-            pathState.pdf = diffuse.forwardPdf(reconnSample, rc_interaction, cache);
+            pathState.pdf = diffuse.forwardPdf(reconnSample, rc_interaction, cache) / hlsl::abs(reconnSample.getNdotL());
         }
 
         // Fill in ReSTIR data
