@@ -625,5 +625,12 @@ void raygen()
     rwmc::CascadeAccumulator<CCascades> colorAcc = rwmc::CascadeAccumulator<CCascades>::create(gSensor.splatting, doClear);
     colorAcc.addSample(rcData.firstSample, accum_t(color));
 
-    gBeauty[launchID] = float32_t4(color, 1.0);
+    {
+        const uint32_t endSample = samplingInfo.newSampleCount;
+        const uint32_t samplesThisFrame = endSample - rcData.firstSample;
+
+        spectral_t mean = (rcData.firstSample != 0u) ? gBeauty[launchID].rgb : spectral_t(0, 0, 0);
+        mean += (color - mean * float32_t(samplesThisFrame)) * rcData.rcpNewSampleCount;
+        gBeauty[launchID] = float32_t4(mean, 1.0);
+    }
 }
