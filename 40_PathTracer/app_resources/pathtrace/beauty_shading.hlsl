@@ -235,8 +235,6 @@ void raygen()
     SReconnectionData rcData;
     reconnDataPtr.get(linearIdx, rcData);
 
-    const bool adjustShadingNormal = rcData.pathLength <= 1;    // TODO: need?
-
     LegacyBdaAccessor<SReservoir> initialReservoirsPtr = LegacyBdaAccessor<SReservoir>::create(gSensor.pStorageBuffers[SensorUBOBufferAddresses::InitialReservoirsBuf]);
     LegacyBdaAccessor<SReservoir> currentReservoirsPtr = LegacyBdaAccessor<SReservoir>::create(gSensor.pStorageBuffers[SensorUBOBufferAddresses::CurrentReservoirsBuf]);
 
@@ -350,14 +348,14 @@ void raygen()
         if (spatialReservoir.age > uint16_t(100u))
             spatialReservoir.M = uint16_t(0u);
 
-        const uint32_t maxSpatialIteration = 3u;
+        static const uint32_t maxSpatialIteration = 3u;
 
         const uint32_t increment = (sampleCount + maxSpatialIteration - 1) / maxSpatialIteration;
         const uint32_t baseOffset = hlsl::round(randgen(sequenceProtoDim++, sampleIndex).x * (increment - 1));
 
-        float32_t3 positionList[10];
-        float32_t3 normalList[10];
-        int MList[10];
+        float32_t3 positionList[4];
+        float32_t3 normalList[4];
+        int MList[4];
         uint32_t nReuse = 0;
         positionList[nReuse] = rcData.preRcHitPosition;
         normalList[nReuse] = rcData.preRcNormal;
