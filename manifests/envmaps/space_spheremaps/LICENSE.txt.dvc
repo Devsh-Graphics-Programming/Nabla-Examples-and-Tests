@@ -1,0 +1,5 @@
+outs:
+- md5: 4f51b958b13a5aa10ade7435099e774b
+  size: 732
+  hash: md5
+  path: LICENSE.txt

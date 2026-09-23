@@ -390,7 +390,7 @@ private:
                 angle_adder = math::sincos_accumulator<float>::create(a, Sin(a));
                 angle_adder.addAngle(b, Sin(b));
                 float res = angle_adder.getSumOfArccos();
-                bool twoAnglesAcos = testing::relativeApproxCompare<float>(res, exAB, 1e-3);
+                bool twoAnglesAcos = approx::absRelEqual<float>(res, exAB, 1e-3f, 1e-3f);
                 pass &= twoAnglesAcos;
                 if (!twoAnglesAcos)
                     m_logger->log("angle adding (2 angles) failed! expected %f, got %f", ILogger::ELL_ERROR, exAB, res);
@@ -401,7 +401,7 @@ private:
                 angle_adder.addAngle(c, Sin(c));
                 angle_adder.addAngle(d, Sin(d));
                 res = angle_adder.getSumOfArccos();
-                bool fourAnglesAcos = testing::relativeApproxCompare<float>(res, exABCD, 1e-3);
+                bool fourAnglesAcos = approx::absRelEqual<float>(res, exABCD, 1e-3f, 1e-3f);
                 pass &= fourAnglesAcos;
                 if (!fourAnglesAcos)
                     m_logger->log("angle adding (4 angles) failed! expected %f, got %f", ILogger::ELL_ERROR, exABCD, res);

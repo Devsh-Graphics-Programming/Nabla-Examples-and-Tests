@@ -4,8 +4,8 @@
 #define _NBL_THIS_EXAMPLE_C_SCENE_LOADER_CPP_
 #include "io/CSceneLoader.h"
 
-#include "nbl/builtin/hlsl/testing/relative_approx_compare.hlsl"
 #include "nbl/builtin/hlsl/math/thin_lens_projection.hlsl"
+#include "nbl/builtin/hlsl/approx/abs_rel.hlsl"
 
 #include "nbl/ext/MitsubaLoader/CMitsubaLoader.h"
 #include "nbl/ext/MitsubaLoader/CSerializedLoader.h"
@@ -218,13 +218,13 @@ auto CSceneLoader::load(SLoadParams&& _params) -> SLoadResult
 				{
 					auto absoluteTransform = float32_t3x4(_sensor.transform.matrix);
 					{
-						// TODO: reenable this check once sampling refactor pr merge to use the special relativeApproxCompare that switches to abs diff when one of the values is 0
+						// TODO: reenable this check, `approx::absRelEqual` has an absolute bound so comparing against 0 works now
 						orientationT = transpose(float32_t3x3(absoluteTransform));
 						//// check orthogonality
 						//constexpr float DiffThresh = 0.00001f;
-						//if (!testing::relativeApproxCompare(dot(orientationT[0],orientationT[1]),0.f,DiffThresh) || 
-						//	!testing::relativeApproxCompare(dot(orientationT[0],orientationT[2]),0.f,DiffThresh) || 
-						//	!testing::relativeApproxCompare(dot(orientationT[1],orientationT[2]),0.f,DiffThresh))
+						//if (!approx::absRelEqual(dot(orientationT[0],orientationT[1]),0.f,DiffThresh,DiffThresh) ||
+						//	!approx::absRelEqual(dot(orientationT[0],orientationT[2]),0.f,DiffThresh,DiffThresh) ||
+						//	!approx::absRelEqual(dot(orientationT[1],orientationT[2]),0.f,DiffThresh,DiffThresh))
 						//{
 						//	logger.log("Sensor %s (%d-th in XML) has a transformation involving skew!",ILogger::ELL_ERROR,id,i);
 						//	constants = {};
@@ -519,7 +519,7 @@ auto CSceneLoader::load(SLoadParams&& _params) -> SLoadResult
 					const auto reconstructedLen = hlsl::length<float64_t3>(reconstructedRight);
 					logger.log("Camera Reconstructed Up Vector match score = %f",system::ILogger::ELL_INFO,dp/reconstructedLen);
  					const float64_t threshold = 0.9996*hlsl::length<float64_t3>(base.up);
-					if (testing::relativeApproxCompare<double>(dp,reconstructedLen,0.03f) && hlsl::abs(pb)<threshold)
+					if (approx::absRelEqual<double>(dp,reconstructedLen,0.03,0.03) && hlsl::abs(pb)<threshold)
 						dynamicDefaults.up = base.up;
 					else
 						dynamicDefaults.up = orientationT[1];

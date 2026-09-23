@@ -8,7 +8,9 @@
 #include <nabla.h>
 
 #include "nbl/asset/utils/CGeometryCreator.h"
-#include "CCamera.hpp"
+#include <nbl/builtin/hlsl/math/thin_lens_projection.hlsl>
+#include "nbl/ext/Cameras/CCameraMathUtilities.hpp"
+#include "nbl/ext/Cameras/CFPSCamera.hpp"
 #include "../common/CommonAPI.h"
 
 using namespace nbl;
@@ -80,7 +82,8 @@ public:
 
   CommonAPI::InputSystem::ChannelReader<ui::IMouseEventChannel> mouse;
   CommonAPI::InputSystem::ChannelReader<ui::IKeyboardEventChannel> keyboard;
-  Camera camera;
+  core::smart_refctd_ptr<ext::cameras::CFPSCamera> camera;
+  hlsl::float32_t4x4 cameraProjection = hlsl::float32_t4x4(1.0f);
 
   int resourceIx;
   uint32_t acquiredNextFBO = {};
@@ -98,10 +101,10 @@ public:
 
   struct SPushConsts {
     struct VertStage {
-      core::matrix4SIMD VP;
+      hlsl::float32_t4x4 VP;
     } vertStage;
     struct FragStage {
-      core::vectorSIMDf campos;
+      hlsl::float32_t4 campos;
       BRDFTestNumber testNum;
       uint32_t pad[3];
     } fragStage;
@@ -319,12 +322,14 @@ public:
       renderFinished[i] = logicalDevice->createSemaphore();
     }
 
-    matrix4SIMD projectionMatrix =
-        matrix4SIMD::buildProjectionMatrixPerspectiveFovLH(
-            core::radians(60.0f), float(WIN_W) / WIN_H, 0.01f, 5000.0f);
-    camera = Camera(core::vectorSIMDf(0.f, 0.f, 6.f),
-                    core::vectorSIMDf(0.f, 0.f, -1.f), projectionMatrix, 10.f,
-                    1.f);
+    cameraProjection = hlsl::math::thin_lens::lhPerspectiveFovMatrix<float>(
+        core::radians(60.0f), float(WIN_W) / WIN_H, 0.01f, 5000.0f);
+    const auto cameraEye = hlsl::float64_t3(0.0, 0.0, 6.0);
+    hlsl::math::quaternion<hlsl::float64_t> cameraOrientation;
+    if (!ext::cameras::CCameraMathUtilities::tryCreateQuaternionFromLookAt(
+            cameraEye, hlsl::float64_t3(0.0, 0.0, -1.0), hlsl::float64_t3(0.0, 1.0, 0.0), cameraOrientation))
+      return logFail("Could not initialize camera orientation!");
+    camera = core::make_smart_refctd_ptr<ext::cameras::CFPSCamera>(cameraEye, cameraOrientation);
   }
 
   void workLoopBody() override {
@@ -414,8 +419,10 @@ public:
     commandBuffer->bindGraphicsPipeline(gpuGraphicsPipeline.get());
 
     SPushConsts pc;
-    pc.vertStage.VP = camera.getConcatenatedMatrix();
-    pc.fragStage.campos = core::vectorSIMDf(&camera.getPosition().X);
+    pc.vertStage.VP = hlsl::math::linalg::promoted_mul(
+        cameraProjection,
+        hlsl::float32_t3x4(camera->getGimbal().getViewMatrixLH()));
+    pc.fragStage.campos = hlsl::float32_t4(hlsl::_static_cast<hlsl::float32_t3>(camera->getGimbal().getPosition()), 1.0f);
     pc.fragStage.testNum = currentTestNum;
     commandBuffer->pushConstants(
         gpuGraphicsPipeline->getRenderpassIndependentPipeline()->getLayout(),
