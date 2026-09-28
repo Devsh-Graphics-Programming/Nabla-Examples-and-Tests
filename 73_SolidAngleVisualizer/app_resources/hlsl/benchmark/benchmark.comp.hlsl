@@ -18,11 +18,12 @@ using namespace nbl::hlsl;
 
 static const SAMPLING_MODE_FLAGS benchmarkMode = SAMPLING_MODE_FLAGS_CONST;
 
+// 8x8 grid repeating every 64 samples; sampleIdx grows across creations and must stay inside the domain.
 float32_t2 stratifiedXi(uint32_t sampleIdx, uint32_t threadIdx)
 {
    return float32_t2(
       (float32_t(sampleIdx & 7u) + 0.5f) / 8.0f + float32_t(threadIdx) * 1e-9f,
-      (float32_t(sampleIdx >> 3u) + 0.5f) / 8.0f + float32_t(threadIdx) * 1e-9f);
+      (float32_t((sampleIdx >> 3u) & 7u) + 0.5f) / 8.0f + float32_t(threadIdx) * 1e-9f);
 }
 
 // Per-thread input perturbation: scatters threads across the 27 OBB regions and

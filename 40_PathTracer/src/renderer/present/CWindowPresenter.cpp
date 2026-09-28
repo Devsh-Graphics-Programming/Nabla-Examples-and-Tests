@@ -61,15 +61,12 @@ smart_refctd_ptr<CWindowPresenter> CWindowPresenter::create(SCreationParams&& _p
 
 	{
 		const auto& primDpyInfo = params.winMgr->getPrimaryDisplayInfo();
-		// subtract window border/decoration elements
-		params.maxResolution = hlsl::max<int32_t2>(int32_t2(primDpyInfo.resX,primDpyInfo.resY)-int32_t2(32,32),int32_t2(0,0));
-		// we add an additional constraint that any dimension of maxResolution cannot be less than any dimension of minResolution
-		// e.g. max resolution Height cannot be less than min resolution width 
-		if (hlsl::any(hlsl::less<uint16_t4>()(params.maxResolution.xxyy,params.minResolution.xyxy)))
+		params.maxResolution = hlsl::max<int32_t2>(int32_t2(primDpyInfo.resX,primDpyInfo.resY),int32_t2(0,0));
+		if (hlsl::any(hlsl::less<uint16_t2>()(params.maxResolution,params.minResolution)))
 		{
 			params.logger.log(
-				"`CWindowPresenter::create` desktop resolution must allow for at least a %d x %d window!",
-				ILogger::ELL_ERROR,params.minResolution.x,params.minResolution.y
+				"`CWindowPresenter::create` desktop resolution %d x %d must allow for at least a %d x %d window!",
+				ILogger::ELL_ERROR,params.maxResolution.x,params.maxResolution.y,params.minResolution.x,params.minResolution.y
 			);
 			return nullptr;
 		}

@@ -15,6 +15,11 @@
 #define NBL_NEE_DEFERRED 0
 #endif
 
+// SER reorder after each path trace: measured 0% on inline, -35% on the deferred raygen, so off. Lanes are coherent enough already.
+#ifndef NBL_PT_SER_REORDER
+#define NBL_PT_SER_REORDER 0
+#endif
+
 // Emitter-selection proposal: 1 = power alias table (O(1)), 0 = stochastic light-cut tree descent.
 #ifndef NBL_NEE_USE_ALIAS
 #define NBL_NEE_USE_ALIAS 1
@@ -28,15 +33,10 @@
 #endif
 
 // ---- NEE estimator knobs ----
-// Visibility: 0 = two rays (emitter-geometry rejection + identity-skip shadow), 1 = one closest-hit ray.
-// Triangle leaves default to the single closest-hit ray, which confirms the exact winning triangle via
-// resolveHitEmitterID. OBB stays two-ray for the cheap per-emitter-TLAS early rejection.
+// Visibility: 1 = one closest-hit ray confirmed by hitKey (exact). 0 = OBB two-ray: cheap per-emitter-TLAS rejection, but an
+// opaque shadow ray needs a tMax window that no epsilon satisfies (self-hits below ~1e-4, coincident occluders above it).
 #ifndef NBL_NEE_SINGLE_RAY
-#if NBL_NEE_LEAF_MODE != 0
 #define NBL_NEE_SINGLE_RAY 1
-#else
-#define NBL_NEE_SINGLE_RAY 0
-#endif
 #endif
 
 #ifndef NEE_RIS_CANDIDATES
@@ -44,6 +44,10 @@
 #endif
 #ifndef NEE_LIGHT_CANDIDATES
 #define NEE_LIGHT_CANDIDATES 1
+#endif
+// Pyramid silhouette-polygon test: at K=1 the shadow ray rejects the same misses, so it only costs registers.
+#ifndef NBL_NEE_SILHOUETTE_TEST
+#define NBL_NEE_SILHOUETTE_TEST (NEE_RIS_CANDIDATES > 1)
 #endif
 
 // Geometry term in the RIS resample target: 2 = orient * bounded projected solid angle, 1 = orient/dist^2,

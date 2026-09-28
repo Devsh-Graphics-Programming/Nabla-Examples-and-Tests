@@ -64,19 +64,4 @@ struct CCascades
    }
 };
 
-// One finished sample's full accumulation: RWMC cascade splat + the fp32 running mean. Assumes the
-// per-pixel sample count was advanced by 1 for this sample (newSampleCount == sampleIndex + 1), which
-// holds for the 1-spp-per-wave wavefront mode.
-inline void splatSampleAndMean(const uint16_t3 coord, const uint32_t sampleIndex, const float32_t3 color)
-{
-   gAccumulationCoord = coord;
-   const bool                          doClear  = sampleIndex == 0u;
-   rwmc::CascadeAccumulator<CCascades> colorAcc = rwmc::CascadeAccumulator<CCascades>::create(gSensor.splatting, doClear);
-   colorAcc.addSample(_static_cast<uint16_t>(sampleIndex + 1u), accum_t(color));
-
-   float32_t3 mean = doClear ? float32_t3(0, 0, 0) : gBeauty[coord].rgb;
-   mean += (color - mean) / float32_t(sampleIndex + 1u);
-   gBeauty[coord] = float32_t4(mean, 1.0);
-}
-
 #endif

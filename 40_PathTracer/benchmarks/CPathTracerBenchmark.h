@@ -149,19 +149,17 @@ protected:
       uint32_t lastN;
       double   elapsed_ns;
       const auto wallStart = std::chrono::steady_clock::now();
+      // Past MaxSPP/spp frames accumulation saturates and every further frame is a no-op phantom, so both paths cap there.
+      const uint32_t spp   = std::max<uint32_t>(1u, m_renderer->getMaxSppPerDispatch());
+      const uint32_t kMaxN = std::max<uint32_t>(1u, (nbl::this_example::MaxSPP + spp - 1u) / spp);
       if (m_fixedTimedFrames > 0u)
       {
-         lastN      = m_fixedTimedFrames;
+         lastN      = std::min(m_fixedTimedFrames, kMaxN);
          elapsed_ns = runN(lastN);
       }
       else
       {
          const double   targetNs = double(getTargetBudgetMs()) * 1'000'000.0;
-         // Past MaxSPP/spp frames accumulation saturates and every further frame is a no-op phantom
-         // frame at near-zero GPU time, which spins this loop without progress. Cap there, and to run
-         // longer raise MAX_SPP_LOG2 rather than the budget.
-         const uint32_t spp   = std::max<uint32_t>(1u, m_renderer->getMaxSppPerDispatch());
-         const uint32_t kMaxN = std::max<uint32_t>(1u, (nbl::this_example::MaxSPP + spp - 1u) / spp);
          lastN      = 0u;
          elapsed_ns = 0.0;
          while (elapsed_ns < targetNs && lastN < kMaxN)

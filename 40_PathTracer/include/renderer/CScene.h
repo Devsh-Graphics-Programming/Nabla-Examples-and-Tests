@@ -102,13 +102,12 @@ class CScene : public core::IReferenceCounted, public core::InterfaceUnmovable
 			core::smart_refctd_ptr<video::SubAllocatedDescriptorSet> sceneDS;
 			// main TLAS
 			core::smart_refctd_ptr<video::IGPUTopLevelAccelerationStructure> TLAS;
-			// CPU-built light tree (BVH2 over emitter instance AABBs)
+			// CPU-built light tree (4-ary over emitter AABBs)
 			SLightTree lightTree;
 			// device-local buffer of LightcutTreePackedWideNode (32 B each); BDA in the scene UBO
 			core::smart_refctd_ptr<video::IGPUBuffer> lightTreeNodes;
-			// device-local buffer of LightcutTreePackedLeaf (32 B each); BDA in the scene UBO
-			core::smart_refctd_ptr<video::IGPUBuffer> lightTreeLeaves;
-			// device-local buffer of SEmitterGPU (radiance etc.), one entry per emitter; BDA in the UBO
+			// device-local buffer of SEmitterGPU, one per emitter in leaf-array order (the descent's leaf
+			// index IS the emitter ID, so this doubles as the tree's leaf array); BDA in the UBO
 			core::smart_refctd_ptr<video::IGPUBuffer> emitters;
 			// PerTriangle only, null in OBB mode, which keeps SEmitterGPU at 48 B.
 			core::smart_refctd_ptr<video::IGPUBuffer> emitterTriVerts;
@@ -116,8 +115,8 @@ class CScene : public core::IReferenceCounted, public core::InterfaceUnmovable
 			core::smart_refctd_ptr<video::IGPUBuffer> emitterRayQuery;
 			// Null unless OBB leaves are enabled.
 			core::smart_refctd_ptr<video::IGPUBuffer> emitterOBB;
-			// device-local buffer of uint32_t mapping emitterID -> heap leaf index; BDA in the UBO
-			core::smart_refctd_ptr<video::IGPUBuffer> emitterToLeafIdx;
+			// PerTriangle only: uint32_t per emissive triangle, selection-order index -> emitter ID.
+			core::smart_refctd_ptr<video::IGPUBuffer> triToEmitter;
 			// device-local uint32_t-per-geometry buffer: instancedGeometryID (= instanceCustomIndex +
 			// GeometryIndex()) -> emitterID (NonEmitterCustomIndex when non-emissive); BDA in the UBO.
 			core::smart_refctd_ptr<video::IGPUBuffer> instancedGeometryToEmitter;

@@ -10,17 +10,28 @@
 [[vk::binding(0, 0)]] RWStructuredBuffer<nbl::hlsl::ResultData> DebugDataBuffer;
 #endif
 
+#if DEBUG_DATA
+static bool g_debugRecord = false;
+#endif
+
 struct DebugRecorder
 {
 #if DEBUG_DATA
+   // One pixel writes: every pixel computes identical data and same-address stores serialize at L2.
+   static void begin(bool record) { g_debugRecord = record; }
+
    static void recordClippedVertex(uint32_t slot, float32_t3 pos, uint32_t originalIndex)
    {
+      if (!g_debugRecord)
+         return;
       DebugDataBuffer[0].silhouette.clippedVertices[slot] = pos;
       DebugDataBuffer[0].silhouette.clippedVertexIndices[slot] = originalIndex;
    }
 
    static void recordClipResult(uint32_t vertexCount, uint32_t clipMask, uint32_t clipCount, uint32_t rotatedClipMask, uint32_t rotateAmount, uint32_t positiveCount, bool wrapAround, uint32_t rotatedSil)
    {
+      if (!g_debugRecord)
+         return;
       DebugDataBuffer[0].silhouette.clippedVertexCount = vertexCount;
       DebugDataBuffer[0].silhouette.clipMask = clipMask;
       DebugDataBuffer[0].silhouette.clipCount = clipCount;
@@ -33,6 +44,8 @@ struct DebugRecorder
 
    static void recordTriangleFan(bool luneDetected, uint32_t count, float32_t totalWeight, float32_t solidAngles[5])
    {
+      if (!g_debugRecord)
+         return;
       DebugDataBuffer[0].triangleFan.sphericalLuneDetected = (uint32_t)luneDetected;
       DebugDataBuffer[0].triangleFan.maxTrianglesExceeded = (count > 5);
       DebugDataBuffer[0].triangleFan.triangleCount = count;
@@ -43,6 +56,8 @@ struct DebugRecorder
 
    static void recordParallelogram(float32_t area, uint32_t convexMask, uint32_t n3Mask, float32_t2 corner, float32_t2 axisDir, float32_t width, float32_t height)
    {
+      if (!g_debugRecord)
+         return;
       DebugDataBuffer[0].parallelogram.area = area;
 
       // Store per-edge convex and N3 flags
@@ -60,6 +75,8 @@ struct DebugRecorder
 
    static void recordPyramid(float32_t3 axis1, float32_t3 axis2, float32_t3 center, float32_t4 bounds, float32_t solidAngle, uint32_t bestEdge)
    {
+      if (!g_debugRecord)
+         return;
       DebugDataBuffer[0].pyramid.axis1 = axis1;
       DebugDataBuffer[0].pyramid.axis2 = axis2;
       DebugDataBuffer[0].pyramid.center = normalize(center);
@@ -73,10 +90,17 @@ struct DebugRecorder
       DebugDataBuffer[0].pyramid.max2 = bounds.w;
    }
 
-   static void recordRay(uint32_t i, float32_t3 dir, float32_t pdf) { DebugDataBuffer[0].sampling.rayData[i] = float32_t4(dir, pdf); }
+   static void recordRay(uint32_t i, float32_t3 dir, float32_t pdf)
+   {
+      if (!g_debugRecord)
+         return;
+      DebugDataBuffer[0].sampling.rayData[i] = float32_t4(dir, pdf);
+   }
 
    static void recordFrameEnd(uint32_t3 region, uint32_t configIndex, uint32_t silSize, uint32_t silData, uint32_t vertexIndices[6], uint32_t validSampleCount, uint32_t sampleCount)
    {
+      if (!g_debugRecord)
+         return;
       DebugDataBuffer[0].silhouette.region = region;
       DebugDataBuffer[0].silhouette.silhouetteIndex = configIndex;
       DebugDataBuffer[0].silhouette.silhouetteVertexCount = silSize;
@@ -89,6 +113,7 @@ struct DebugRecorder
       DebugDataBuffer[0].sampling.sampleCount = sampleCount;
    }
 #else
+   static void begin(bool record) {}
    static void recordClippedVertex(uint32_t slot, float32_t3 pos, uint32_t originalIndex) {}
    static void recordClipResult(uint32_t vertexCount, uint32_t clipMask, uint32_t clipCount, uint32_t rotatedClipMask, uint32_t rotateAmount, uint32_t positiveCount, bool wrapAround, uint32_t rotatedSil) {}
    static void recordTriangleFan(bool luneDetected, uint32_t count, float32_t totalWeight, float32_t solidAngles[5]) {}
@@ -100,39 +125,31 @@ struct DebugRecorder
 };
 
 // Module-scope visualization state (per-thread in fragment shaders)
-#if VISUALIZE_SAMPLES
-static float32_t2 g_visNdc;
-static float32_t3 g_visSpherePos;
-static float32_t g_visAaWidth;
-static float32_t4 g_visColor;
-#endif
+static nbl::hlsl::float32_t2 g_visNdc;
+static nbl::hlsl::float32_t3 g_visSpherePos;
+static nbl::hlsl::float32_t g_visAaWidth;
+static nbl::hlsl::float32_t4 g_visColor;
 
+// Accumulates in every variant, so the release shader keeps its sample sink instead of folding to a constant.
 struct VisContext
 {
-#if VISUALIZE_SAMPLES
-   static void begin(float32_t2 ndc, float32_t3 spherePos, float32_t _aaWidth)
+   static void begin(nbl::hlsl::float32_t2 ndc, nbl::hlsl::float32_t3 spherePos, nbl::hlsl::float32_t _aaWidth)
    {
       g_visNdc = ndc;
       g_visSpherePos = spherePos;
       g_visAaWidth = _aaWidth;
-      g_visColor = float32_t4(0, 0, 0, 0);
+      g_visColor = nbl::hlsl::float32_t4(0, 0, 0, 0);
    }
 
-   static void add(float32_t4 c) { g_visColor += c; }
-   static float32_t4 flush() { return g_visColor; }
+   static void add(nbl::hlsl::float32_t4 c) { g_visColor += c; }
+   static nbl::hlsl::float32_t4 flush() { return g_visColor; }
 
-   static float32_t2 ndc() { return g_visNdc; }
-   static float32_t3 spherePos() { return g_visSpherePos; }
-   static float32_t aaWidth() { return g_visAaWidth; }
+   static nbl::hlsl::float32_t2 ndc() { return g_visNdc; }
+   static nbl::hlsl::float32_t3 spherePos() { return g_visSpherePos; }
+   static nbl::hlsl::float32_t aaWidth() { return g_visAaWidth; }
+#if VISUALIZE_SAMPLES
    static bool enabled() { return true; }
 #else
-   static void begin(nbl::hlsl::float32_t2 ndc, nbl::hlsl::float32_t3 spherePos, nbl::hlsl::float32_t aaWidth) {}
-   static void add(nbl::hlsl::float32_t4 c) {}
-   static nbl::hlsl::float32_t4 flush() { return nbl::hlsl::float32_t4(0, 0, 0, 0); }
-
-   static nbl::hlsl::float32_t2 ndc() { return nbl::hlsl::float32_t2(0, 0); }
-   static nbl::hlsl::float32_t3 spherePos() { return nbl::hlsl::float32_t3(0, 0, 0); }
-   static nbl::hlsl::float32_t aaWidth() { return 0; }
    static bool enabled() { return false; }
 #endif
 };

@@ -129,8 +129,8 @@ void CSessionWindow::drawDynamicsSection()
       if (ImGui::SliderFloat("T Max", &m_state.tMax, 0.0f, 20000.0f, "%.1f", ImGuiSliderFlags_Logarithmic))
          changed = true;
 
-      // Per-pixel accumulation cap. Bounded by the maxSPP push-constant bitfield width.
-      constexpr int kMaxSPPLimit = (1 << 22) - 1;
+      // Per-pixel accumulation cap. Anything above MaxSPP truncates in the 15-bit maxSPP push-constant field.
+      constexpr int kMaxSPPLimit = int(nbl::this_example::MaxSPP);
       if (ImGui::DragInt("Max SPP", &m_state.maxSPP, 16.0f, 1, kMaxSPPLimit, "%d", ImGuiSliderFlags_AlwaysClamp))
          changed = true;
 

@@ -124,7 +124,7 @@ class CDiscreteSamplerBenchmark : public GPUBenchmark
          {
             core::vector<core::string> name      = {nStr, family, leaf};
             const bool                 inFocus   = isFocused(name);
-            const bool                 shouldRun = focusedPhase ? inFocus : !inFocus;
+            const bool                 shouldRun = focusedPhase ? inFocus : (!inFocus && !isFocusOnly());
             if (!shouldRun)
                continue;
             if (!built)
@@ -166,9 +166,7 @@ class CDiscreteSamplerBenchmark : public GPUBenchmark
       for (uint32_t i = 0; i < N; i++)
          weights[i] = dist(rng);
 
-      // Build the alias table SoA (intermediate form), then pack it for variants A and B.
-      // Builder may pad PoT N to N+1 for cache-friendly stride; returned size drives
-      // every downstream buffer / push-constant value.
+      // Build the alias table SoA, then pack it for variants A and B.
       std::vector<float>    aliasProb;
       std::vector<uint32_t> aliasIdx;
       std::vector<float>    aliasPdf;

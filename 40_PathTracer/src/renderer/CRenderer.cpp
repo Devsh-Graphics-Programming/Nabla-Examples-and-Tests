@@ -5,7 +5,6 @@
 #include "renderer/CLightTree.h"
 #include "renderer/SAASequence.h"
 #include "renderer/shaders/pathtrace/nee_deferred_common.hlsl"
-#include "renderer/shaders/pathtrace/wavefront_common.hlsl"
 
 #include "nbl/ext/FullScreenTriangle/FullScreenTriangle.h"
 
@@ -285,70 +284,6 @@ smart_refctd_ptr<CRenderer> CRenderer::create(SCreationParams&& _params)
          params.neeDeferredPipelines[i] = std::move(pipelines[i]);
    }
 
-   // Per-bounce indirect wavefront pipelines.
-   {
-      using sampler_e                                                    = CSession::LightSampler;
-      constexpr uint8_t                      NeeCount                    = SCachedConstructionParams::NeeDeferredPipelineCount;
-      constexpr uint8_t                      TotalCount                  = 3 + 4 + NeeCount; // init + 2 fixups + trace[leaf*2+isBoth] + nee
-      core::smart_refctd_ptr<asset::IShader> shaders[TotalCount]         = {};
-      shaders[0]                                                         = loadPrecompiledShader<"wavefront_init">(_params.assMan, device, logger);
-      shaders[1]                                                         = loadPrecompiledShader<"wavefront_fixup_first">(_params.assMan, device, logger);
-      shaders[2]                                                         = loadPrecompiledShader<"wavefront_fixup_bounce">(_params.assMan, device, logger);
-      shaders[3 + 0]                                                     = loadPrecompiledShader<"wavefront_obb_nee_only">(_params.assMan, device, logger);
-      shaders[3 + 1]                                                     = loadPrecompiledShader<"wavefront_obb_both">(_params.assMan, device, logger);
-      shaders[3 + 2]                                                     = loadPrecompiledShader<"wavefront_tri_nee_only">(_params.assMan, device, logger);
-      shaders[3 + 3]                                                     = loadPrecompiledShader<"wavefront_tri_both">(_params.assMan, device, logger);
-      constexpr uint8_t aliasOff                                         = uint8_t(sampler_e::Count); // alias slots start past the tree samplers
-      shaders[7 + uint8_t(sampler_e::OBB) * 2 + 0]                       = loadPrecompiledShader<"wavefront_nee_obb_tree">(_params.assMan, device, logger);
-      shaders[7 + uint8_t(sampler_e::OBB) * 2 + 1]                       = loadPrecompiledShader<"wavefront_nee_obb_tree_both">(_params.assMan, device, logger);
-      shaders[7 + uint8_t(sampler_e::TriUniform) * 2 + 0]                = loadPrecompiledShader<"wavefront_nee_tri_uniform">(_params.assMan, device, logger);
-      shaders[7 + uint8_t(sampler_e::TriUniform) * 2 + 1]                = loadPrecompiledShader<"wavefront_nee_tri_uniform_both">(_params.assMan, device, logger);
-      shaders[7 + uint8_t(sampler_e::TriArvo) * 2 + 0]                   = loadPrecompiledShader<"wavefront_nee_tri_arvo">(_params.assMan, device, logger);
-      shaders[7 + uint8_t(sampler_e::TriArvo) * 2 + 1]                   = loadPrecompiledShader<"wavefront_nee_tri_arvo_both">(_params.assMan, device, logger);
-      shaders[7 + uint8_t(sampler_e::TriProjected) * 2 + 0]              = loadPrecompiledShader<"wavefront_nee_tri_projected">(_params.assMan, device, logger);
-      shaders[7 + uint8_t(sampler_e::TriProjected) * 2 + 1]              = loadPrecompiledShader<"wavefront_nee_tri_projected_both">(_params.assMan, device, logger);
-      shaders[7 + (aliasOff + uint8_t(sampler_e::OBB)) * 2 + 0]          = loadPrecompiledShader<"wavefront_nee_obb_alias">(_params.assMan, device, logger);
-      shaders[7 + (aliasOff + uint8_t(sampler_e::OBB)) * 2 + 1]          = loadPrecompiledShader<"wavefront_nee_obb_alias_both">(_params.assMan, device, logger);
-      shaders[7 + (aliasOff + uint8_t(sampler_e::TriUniform)) * 2 + 0]   = loadPrecompiledShader<"wavefront_nee_tri_uniform_alias">(_params.assMan, device, logger);
-      shaders[7 + (aliasOff + uint8_t(sampler_e::TriUniform)) * 2 + 1]   = loadPrecompiledShader<"wavefront_nee_tri_uniform_alias_both">(_params.assMan, device, logger);
-      shaders[7 + (aliasOff + uint8_t(sampler_e::TriArvo)) * 2 + 0]      = loadPrecompiledShader<"wavefront_nee_tri_arvo_alias">(_params.assMan, device, logger);
-      shaders[7 + (aliasOff + uint8_t(sampler_e::TriArvo)) * 2 + 1]      = loadPrecompiledShader<"wavefront_nee_tri_arvo_alias_both">(_params.assMan, device, logger);
-      shaders[7 + (aliasOff + uint8_t(sampler_e::TriProjected)) * 2 + 0] = loadPrecompiledShader<"wavefront_nee_tri_projected_alias">(_params.assMan, device, logger);
-      shaders[7 + (aliasOff + uint8_t(sampler_e::TriProjected)) * 2 + 1] = loadPrecompiledShader<"wavefront_nee_tri_projected_alias_both">(_params.assMan, device, logger);
-
-      const char* const                    entryPoints[3]            = { "waveInit", "waveFixupFirst", "waveFixupBounce" };
-      IGPUComputePipeline::SCreationParams computeParams[TotalCount] = {};
-      for (uint8_t i = 0; i < TotalCount; i++)
-      {
-         if (!shaders[i])
-         {
-            logger.log("Failed to Load Wavefront Shader %d!", ILogger::ELL_ERROR, int(i));
-            return nullptr;
-         }
-         computeParams[i].layout            = params.neeDeferredLayout.get();
-         computeParams[i].shader.shader     = shaders[i].get();
-         computeParams[i].shader.entryPoint = i < 3 ? entryPoints[i] : (i < 7 ? "waveTrace" : "waveNee");
-      }
-      // one call per pipeline with the shader named first, so a driver-side crash identifies its blob
-      core::smart_refctd_ptr<IGPUComputePipeline> pipelines[TotalCount];
-      for (uint8_t i = 0; i < TotalCount; i++)
-      {
-         logger.log("Creating Wavefront pipeline %d (%s, entry %s)", ILogger::ELL_INFO, int(i), shaders[i]->getFilepathHint().c_str(), computeParams[i].shader.entryPoint.data());
-         if (!device->createComputePipelines(nullptr, { computeParams + i, 1 }, pipelines + i))
-         {
-            logger.log("Failed to create Wavefront Compute Pipeline %d!", ILogger::ELL_ERROR, int(i));
-            return nullptr;
-         }
-      }
-      params.wavefrontInitPipeline        = std::move(pipelines[0]);
-      params.wavefrontFixupFirstPipeline  = std::move(pipelines[1]);
-      params.wavefrontFixupBouncePipeline = std::move(pipelines[2]);
-      for (uint8_t i = 0; i < 4; i++)
-         params.wavefrontTracePipelines[i] = std::move(pipelines[3 + i]);
-      for (uint8_t i = 0; i < NeeCount; i++)
-         params.wavefrontNeePipelines[i] = std::move(pipelines[7 + i]);
-   }
-
    // TODO: create the generic pipelines
    params.shaders[uint8_t(render_mode_e::Previs)] = loadPrecompiledShader<"pathtrace_previs">(_params.assMan, device, logger);
    params.shaders[uint8_t(render_mode_e::Beauty)] = loadPrecompiledShader<"pathtrace_beauty">(_params.assMan, device, logger);
@@ -425,10 +360,8 @@ void CRenderer::setProbe(const hlsl::float32_t3& point, const hlsl::float32_t3& 
       m_debugProbeMapped->shadingPoint = point;
       m_debugProbeMapped->normal       = normal;
    }
-   // Recompute per-emitter backward pdfs CPU-side. Probe moves at gizmo speed
-   // (handful of times per second tops), so this is cheap, pure scalar math
-   // over emitterToLeafIdx.size() entries. Replaces the shader-side descent
-   // that was spilling at high emitter density.
+   // Recompute per-emitter backward pdfs CPU-side. Probe moves at gizmo speed, so this is cheap
+   // scalar math; it replaces the shader-side descent that was spilling at high emitter density.
    if (m_probeDebugPdfsMapped && m_lightTreeForProbe && m_probeDebugPdfsCount > 0)
    {
       computePerEmitterBackwardPdfCPU(*m_lightTreeForProbe, point, normal, std::span<float>(m_probeDebugPdfsMapped, m_probeDebugPdfsCount));
@@ -646,6 +579,24 @@ core::smart_refctd_ptr<CScene> CRenderer::createScene(CScene::SCreationParams&& 
                   &emitterInstanceRefs,
                   &emitterOBBRecords);
                params.lightTree = buildLightTreeCPU(emitterLeaves, m_leafMode);
+               // The build renumbered emitters into leaf-array order; bring the per-emitter side tables
+               // along. PerTriangle keeps hits in selection order and remaps through pTriToEmitter.
+               if (m_leafMode != ELightLeafMode::PerTriangle)
+               {
+                  const auto& remap = params.lightTree.emitterRemap;
+                  for (auto& v : instancedGeoToEmitter)
+                     if (v != NonEmitterCustomIndex)
+                        v = remap[v];
+                  core::vector<SEmitterInstanceRef> refs(emitterInstanceRefs.size());
+                  core::vector<SEmitterOBB>         obbs(emitterOBBRecords.size());
+                  for (uint32_t old = 0u; old < remap.size(); ++old)
+                  {
+                     refs[remap[old]] = std::move(emitterInstanceRefs[old]);
+                     obbs[remap[old]] = emitterOBBRecords[old];
+                  }
+                  emitterInstanceRefs = std::move(refs);
+                  emitterOBBRecords   = std::move(obbs);
+               }
                m_creation.logger.log("Light tree: %u emitters of %u instances; %zu nodes (padded to %u leaves)"
                                      " [eligible=%u, skipped: nonStatic=%u noColl=%u emptyAABB=%u; pickedRng=%u forced=%u]",
                   ILogger::ELL_INFO,
@@ -757,7 +708,6 @@ core::smart_refctd_ptr<CScene> CRenderer::createScene(CScene::SCreationParams&& 
       using buffer_usage_e             = IGPUBuffer::E_USAGE_FLAGS;
       constexpr auto BasicBufferUsages = buffer_usage_e::EUF_SHADER_DEVICE_ADDRESS_BIT;
       // Upload the light tree before filling the UBO, since the UBO carries the buffer's BDA.
-      // CWBVH-4: wide-node array (32 B each) + precise per-leaf array (16 B each).
       if (!params.lightTree.wideNodes.empty())
       {
          static_assert(sizeof(SLightTreeWideNode) == 32);
@@ -769,34 +719,24 @@ core::smart_refctd_ptr<CScene> CRenderer::createScene(CScene::SCreationParams&& 
          if (params.lightTreeNodes)
             params.lightTreeNodes->setObjectDebugName("Light Tree Wide Nodes");
       }
-      if (!params.lightTree.leaves.empty())
-      {
-         static_assert(sizeof(SLightTreeLeaf_GPU) == 32);
-         IGPUBuffer::SCreationParams leafBufferCreationParams = {};
-         leafBufferCreationParams.size                        = sizeof(SLightTreeLeaf_GPU) * params.lightTree.leaves.size();
-         leafBufferCreationParams.usage                       = BasicBufferUsages | buffer_usage_e::EUF_STORAGE_BUFFER_BIT | buffer_usage_e::EUF_TRANSFER_DST_BIT;
-         m_creation.utilities->createFilledDeviceLocalBufferOnDedMem(SIntendedSubmitInfo { .queue = m_creation.graphicsQueue }, std::move(leafBufferCreationParams), params.lightTree.leaves.data())
-            .move_into(params.lightTreeLeaves);
-         if (params.lightTreeLeaves)
-            params.lightTreeLeaves->setObjectDebugName("Light Tree Leaves");
-      }
       // Upload the emitter table (one entry per emitter, indexed by the dense emitterID, the value
       // the per-geometry aux map resolves a hit to, NOT instanceCustomIndex which is now a base).
       if (!emitterLeaves.empty())
       {
          static_assert(sizeof(SEmitterGPU) == 48);
-         const bool                haveLeafMap = !params.lightTree.emitterToLeafIdx.empty();
          core::vector<SEmitterGPU> gpuEmitters(emitterLeaves.size());
-         for (const auto& leaf : emitterLeaves)
+         for (uint32_t sel = 0u; sel < emitterLeaves.size(); ++sel)
          {
+            const auto& leaf = emitterLeaves[sel];
             assert(leaf.emitterID < gpuEmitters.size());
             SEmitterGPU& e = gpuEmitters[leaf.emitterID];
             e.radiance     = leaf.radiance;
-            // Co-located leaf data so the shader skips the emitter -> leaf reverse-map chase.
-            e.leafHeap = haveLeafMap ? params.lightTree.emitterToLeafIdx[leaf.emitterID] : 0u;
-            e.bboxMin  = leaf.worldAABB.minVx;
-            e.bboxMax  = leaf.worldAABB.maxVx;
-            e._pad     = nbl::hlsl::float32_t2(0.f, 0.f);
+            // What resolveHitKey() yields for a hit on this emitter: the emitter ID (OBB, map already
+            // remapped) or the selection-order triangle index (PerTriangle, base + PrimitiveIndex).
+            e.hitKey  = (m_leafMode == ELightLeafMode::PerTriangle) ? sel : leaf.emitterID;
+            e.bboxMin = leaf.worldAABB.minVx;
+            e.bboxMax = leaf.worldAABB.maxVx;
+            e._pad    = nbl::hlsl::float32_t2(0.f, 0.f);
          }
          IGPUBuffer::SCreationParams emitterBufferCreationParams = {};
          emitterBufferCreationParams.size                        = sizeof(SEmitterGPU) * gpuEmitters.size();
@@ -849,17 +789,17 @@ core::smart_refctd_ptr<CScene> CRenderer::createScene(CScene::SCreationParams&& 
          if (params.emitterTriVerts)
             params.emitterTriVerts->setObjectDebugName("Emitter Triangle Verts");
       }
-      // Upload the emitter -> heap-leaf-index reverse map (for backward NEE pdf walks).
-      if (!params.lightTree.emitterToLeafIdx.empty())
+      // PerTriangle: hits resolve to a selection-order triangle index; this maps it to the emitter ID.
+      if (m_leafMode == ELightLeafMode::PerTriangle && !params.lightTree.emitterRemap.empty())
       {
-         IGPUBuffer::SCreationParams reverseMapCreationParams = {};
-         reverseMapCreationParams.size                        = sizeof(uint32_t) * params.lightTree.emitterToLeafIdx.size();
-         reverseMapCreationParams.usage                       = BasicBufferUsages | buffer_usage_e::EUF_STORAGE_BUFFER_BIT | buffer_usage_e::EUF_TRANSFER_DST_BIT;
+         IGPUBuffer::SCreationParams remapCreationParams = {};
+         remapCreationParams.size                        = sizeof(uint32_t) * params.lightTree.emitterRemap.size();
+         remapCreationParams.usage                       = BasicBufferUsages | buffer_usage_e::EUF_STORAGE_BUFFER_BIT | buffer_usage_e::EUF_TRANSFER_DST_BIT;
          m_creation.utilities
-            ->createFilledDeviceLocalBufferOnDedMem(SIntendedSubmitInfo { .queue = m_creation.graphicsQueue }, std::move(reverseMapCreationParams), params.lightTree.emitterToLeafIdx.data())
-            .move_into(params.emitterToLeafIdx);
-         if (params.emitterToLeafIdx)
-            params.emitterToLeafIdx->setObjectDebugName("Emitter to Leaf Index");
+            ->createFilledDeviceLocalBufferOnDedMem(SIntendedSubmitInfo { .queue = m_creation.graphicsQueue }, std::move(remapCreationParams), params.lightTree.emitterRemap.data())
+            .move_into(params.triToEmitter);
+         if (params.triToEmitter)
+            params.triToEmitter->setObjectDebugName("Triangle to Emitter");
       }
       // Upload the instancedGeometryID -> emitterID aux map (hit-side emitter resolution).
       if (!instancedGeoToEmitter.empty())
@@ -960,7 +900,7 @@ core::smart_refctd_ptr<CScene> CRenderer::createScene(CScene::SCreationParams&& 
       // against the current probe. Recomputed by setProbe(). Lives alongside
       // the host-coherent debug-probe buffer so the gizmo refresh path doesn't
       // need a fence/barrier dance.
-      const uint32_t numEmittersActual = uint32_t(params.lightTree.emitterToLeafIdx.size());
+      const uint32_t numEmittersActual = params.lightTree.numLeavesActual;
       if (numEmittersActual > 0)
       {
          IGPUBuffer::SCreationParams pdfsCreationParams = {};
@@ -1024,12 +964,11 @@ core::smart_refctd_ptr<CScene> CRenderer::createScene(CScene::SCreationParams&& 
          // TODO: Some Constant to Tell us how many dimensions each path vertex consumes
          uniforms.init.lastSequencePathDepth       = m_construction.getSequenceMaxPathDepth();
          uniforms.init.pLightTreeNodes             = params.lightTreeNodes ? params.lightTreeNodes->getDeviceAddress() : 0;
-         uniforms.init.pLightTreeLeaves            = params.lightTreeLeaves ? params.lightTreeLeaves->getDeviceAddress() : 0;
          uniforms.init.pEmitters                   = params.emitters ? params.emitters->getDeviceAddress() : 0;
          uniforms.init.pEmitterTriVerts            = params.emitterTriVerts ? params.emitterTriVerts->getDeviceAddress() : 0;
          uniforms.init.pEmitterRayQuery            = params.emitterRayQuery ? params.emitterRayQuery->getDeviceAddress() : 0;
          uniforms.init.pEmitterOBB                 = params.emitterOBB ? params.emitterOBB->getDeviceAddress() : 0;
-         uniforms.init.pEmitterToLeafIdx           = params.emitterToLeafIdx ? params.emitterToLeafIdx->getDeviceAddress() : 0;
+         uniforms.init.pTriToEmitter               = params.triToEmitter ? params.triToEmitter->getDeviceAddress() : 0;
          uniforms.init.pInstancedGeometryToEmitter = params.instancedGeometryToEmitter ? params.instancedGeometryToEmitter->getDeviceAddress() : 0;
          uniforms.init.pAliasEntries               = params.aliasEntries ? params.aliasEntries->getDeviceAddress() : 0;
          uniforms.init.pAliasPdf                   = params.aliasPdf ? params.aliasPdf->getDeviceAddress() : 0;
@@ -1041,7 +980,7 @@ core::smart_refctd_ptr<CScene> CRenderer::createScene(CScene::SCreationParams&& 
          uniforms.init.pNodePdfs                   = params.nodePdfs ? params.nodePdfs->getDeviceAddress() : 0;
          uniforms.init.pQuantQuality               = params.quantQuality ? params.quantQuality->getDeviceAddress() : 0;
          uniforms.init.lightTreeFirstLeafIndex     = params.lightTree.firstLeafIndex;
-         uniforms.init.lightTreeNumLeavesPadded    = params.lightTree.numLeavesPadded;
+         uniforms.init.numEmitters                 = params.lightTree.numLeavesActual;
          tmpBuffers.ubo->setContentHash(tmpBuffers.ubo->computeContentHash());
       }
       // SBT
@@ -1375,11 +1314,8 @@ auto CRenderer::render(CSession* session, const STimingScope& timing) -> SSubmit
    // Deferred NEE: NEE-only or Both Beauty on single-layer sensors.
    const uint32_t sessionLastPathDepth = uint32_t(sessionResources.currentSensorState.lastPathDepth);
    const uint32_t deferredBounceCap    = (m_misMode == CSession::MisMode::NEEOnly) ? 1u : sessionLastPathDepth;
-   const bool     deferredOK = m_deferredMode != DeferredNEEMode::Inline && mode == CSession::RenderMode::Beauty && (m_misMode == CSession::MisMode::NEEOnly || m_misMode == CSession::MisMode::Both) &&
+   const bool     deferredNEE = m_deferredMode == DeferredNEEMode::Batched && mode == CSession::RenderMode::Beauty && (m_misMode == CSession::MisMode::NEEOnly || m_misMode == CSession::MisMode::Both) &&
       sessionParams.type != CSession::sensor_type_e::Env;
-   const bool batchedNEE   = deferredOK && m_deferredMode == DeferredNEEMode::Batched;
-   const bool wavefrontNEE = deferredOK && m_deferredMode == DeferredNEEMode::Wavefront;
-   const bool deferredNEE  = batchedNEE || wavefrontNEE;
    // one-shot log so the fallback is diagnosable instead of silent
    if (m_deferredMode != DeferredNEEMode::Inline && (deferredNEE != m_neeDeferredActive || m_deferredModeRequestedLast != m_deferredMode))
       getLogger().log("Deferred NEE %s (deferredMode=%u renderMode=%u misMode=%u envSensor=%u pathDepth=%u)",
@@ -1398,8 +1334,7 @@ auto CRenderer::render(CSession* session, const STimingScope& timing) -> SSubmit
    const uint32_t neeBandCount = (uint32_t(renderSize.y) + neeBandHeight - 1u) / neeBandHeight;
    if (deferredNEE)
    {
-      const uint64_t neededSize = wavefrontNEE ? wavefrontBufferSize(uint32_t(renderSize.x) * renderSize.y)
-                                               : uint64_t(renderSize.x) * neeBandHeight * (NeeDeferredHeaderTaps + uint64_t(deferredBounceCap) * NeeDeferredBounceTaps) * NeeDeferredTapSize;
+      const uint64_t neededSize = uint64_t(renderSize.x) * neeBandHeight * (NeeDeferredHeaderTaps + uint64_t(deferredBounceCap) * NeeDeferredBounceTaps) * NeeDeferredTapSize;
       if (!m_neeRequests || m_neeRequests->getSize() < neededSize)
       {
          auto* const device = m_creation.utilities->getLogicalDevice();
@@ -1424,8 +1359,8 @@ auto CRenderer::render(CSession* session, const STimingScope& timing) -> SSubmit
          getLogger().log("Deferred NEE request buffer: %llu MB", ILogger::ELL_INFO, neededSize >> 20);
       }
    }
-   // m_misMode + m_useAliasNEE only affect Beauty; wavefront mode has no RT pipeline at all.
-   const auto* const pipeline = scene->getPipeline(mode, m_misMode, m_useAliasNEE, m_sampler, batchedNEE);
+   // m_misMode + m_useAliasNEE only affect Beauty.
+   const auto* const pipeline = scene->getPipeline(mode, m_misMode, m_useAliasNEE, m_sampler, deferredNEE);
 
    bool success;
    // push constants
@@ -1461,7 +1396,7 @@ auto CRenderer::render(CSession* session, const STimingScope& timing) -> SSubmit
                pc.pNeeRequests                    = deferredNEE ? m_neeRequests->getDeviceAddress() : 0ull;
                // alias-vs-tree is now a compiled Beauty variant (NBL_NEE_USE_ALIAS), picked via
                // getPipeline(mode, m_misMode, m_useAliasNEE) above, no longer a push constant.
-               // Batched and wavefront push per (wave, band) round / per dispatch in their branches.
+               // Batched pushes per (wave, band) round in its own branch.
                if (!deferredNEE)
                   success = cb->pushConstants(pipeline->getLayout(), hlsl::ShaderStage::ESS_ALL_RAY_TRACING, 0, sizeof(pc), &pc);
                break;
@@ -1473,8 +1408,6 @@ auto CRenderer::render(CSession* session, const STimingScope& timing) -> SSubmit
    }
 
    const auto& sessionImmutables = sessionResources.immutables;
-   // bind pipelines (wavefront mode is pure compute, no RT pipeline)
-   if (!wavefrontNEE)
    {
       success                          = success && cb->bindRayTracingPipeline(pipeline);
       const IGPUDescriptorSet* sets[2] = { sessionParams.scene->getDescriptorSet(), sessionImmutables.ds.get() };
@@ -1522,12 +1455,12 @@ auto CRenderer::render(CSession* session, const STimingScope& timing) -> SSubmit
 
    // Batched traces per (wave, band) inside its own branch below.
    if (!deferredNEE)
-      success = success && cb->traceRays(scene->getSBT(mode, m_misMode, m_useAliasNEE, m_sampler, batchedNEE), renderSize.x, renderSize.y, sessionParams.type != CSession::sensor_type_e::Env ? 1 : 6);
+      success = success && cb->traceRays(scene->getSBT(mode, m_misMode, m_useAliasNEE, m_sampler, deferredNEE), renderSize.x, renderSize.y, sessionParams.type != CSession::sensor_type_e::Env ? 1 : 6);
 
    const uint8_t samplerSlot = (m_useAliasNEE ? uint8_t(CSession::LightSampler::Count) : uint8_t(0)) + uint8_t(m_sampler);
    const uint8_t misSlot     = m_misMode == CSession::MisMode::Both ? 1 : 0;
 
-   if (batchedNEE)
+   if (deferredNEE)
    {
       constexpr asset::SMemoryBarrier rtToCompute[1] = { { .srcStageMask = PIPELINE_STAGE_FLAGS::RAY_TRACING_SHADER_BIT,
          .srcAccessMask                                                  = ACCESS_FLAGS::SHADER_WRITE_BITS,
@@ -1547,7 +1480,7 @@ auto CRenderer::render(CSession* session, const STimingScope& timing) -> SSubmit
 
       // (wave, band) rounds reuse the single band-sized request buffer; output matches inline at
       // maxSppPerDispatch=1 (fresh per-wave rng stream)
-      const auto&    sbt                     = scene->getSBT(mode, m_misMode, m_useAliasNEE, m_sampler, batchedNEE);
+      const auto&    sbt                     = scene->getSBT(mode, m_misMode, m_useAliasNEE, m_sampler, deferredNEE);
       const uint32_t tilesX                  = (uint32_t(renderSize.x) + 7u) / 8u;
       beautyPC.__16BitData.maxSppPerDispatch = 1;
       for (uint32_t wave = 0; wave < m_maxSppPerDispatch && success; wave++)
@@ -1568,71 +1501,6 @@ auto CRenderer::render(CSession* session, const STimingScope& timing) -> SSubmit
             success = success && cb->pipelineBarrier(asset::EDF_NONE, { .memBarriers = rtToCompute });
             success = success && cb->pushConstants(computeLayout, hlsl::ShaderStage::ESS_COMPUTE, 0, sizeof(beautyPC), &beautyPC);
             success = success && cb->dispatch(tilesX * ((bandH + 7u) / 8u), 1, 1);
-         }
-      }
-   }
-   else if (wavefrontNEE)
-   {
-      auto* const              computeLayout = m_construction.neeDeferredLayout.get();
-      const IGPUDescriptorSet* sets[2]       = { sessionParams.scene->getDescriptorSet(), sessionImmutables.ds.get() };
-      success                                = success && cb->bindDescriptorSets(EPBP_COMPUTE, computeLayout, 0, 2, sets);
-
-      auto* const tracePipeline = m_construction.wavefrontTracePipelines[(m_sampler != CSession::LightSampler::OBB ? 2 : 0) + misSlot].get();
-      auto* const neePipeline   = m_construction.wavefrontNeePipelines[samplerSlot * 2 + misSlot].get();
-
-      const uint32_t pixelCount = uint32_t(renderSize.x) * renderSize.y;
-      const uint32_t initGroups = (pixelCount + WavefrontWorkgroupSize - 1) / WavefrontWorkgroupSize;
-      const uint32_t bounces    = (m_misMode == CSession::MisMode::NEEOnly) ? 1u : sessionLastPathDepth;
-
-      constexpr auto              computeAndIndirect = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT | PIPELINE_STAGE_FLAGS::DISPATCH_INDIRECT_COMMAND_BIT;
-      const asset::SMemoryBarrier toNext[1]          = { { .srcStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT,
-         .srcAccessMask                                         = ACCESS_FLAGS::SHADER_WRITE_BITS,
-         .dstStageMask                                          = computeAndIndirect,
-         .dstAccessMask                                         = ACCESS_FLAGS::SHADER_READ_BITS | ACCESS_FLAGS::SHADER_WRITE_BITS | ACCESS_FLAGS::INDIRECT_COMMAND_READ_BIT } };
-      const asset::SMemoryBarrier fillToCompute[1]   = { { .srcStageMask = PIPELINE_STAGE_FLAGS::COPY_BIT,
-         .srcAccessMask                                                = ACCESS_FLAGS::TRANSFER_WRITE_BIT,
-         .dstStageMask                                                 = computeAndIndirect,
-         .dstAccessMask                                                = ACCESS_FLAGS::SHADER_READ_BITS | ACCESS_FLAGS::SHADER_WRITE_BITS } };
-      // the wave's fill overwrites counters the previous wave's (or frame's) nee dispatch still reads
-      const asset::SMemoryBarrier computeToFill[1] = { { .srcStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT,
-         .srcAccessMask                                                = ACCESS_FLAGS::SHADER_WRITE_BITS,
-         .dstStageMask                                                 = PIPELINE_STAGE_FLAGS::COPY_BIT,
-         .dstAccessMask                                                = ACCESS_FLAGS::TRANSFER_WRITE_BIT } };
-
-      const asset::SBufferBinding<const IGPUBuffer> rayArgsBinding = { .offset = WavefrontRayArgsOffset, .buffer = core::smart_refctd_ptr<const IGPUBuffer>(m_neeRequests) };
-      const asset::SBufferBinding<const IGPUBuffer> neeArgsBinding = { .offset = WavefrontNeeArgsOffset, .buffer = core::smart_refctd_ptr<const IGPUBuffer>(m_neeRequests) };
-
-      for (uint32_t wave = 0; wave < m_maxSppPerDispatch && success; wave++)
-      {
-         // fresh counters for the wave (init appends to ray queue 0)
-         success = success && cb->pipelineBarrier(asset::EDF_NONE, { .memBarriers = computeToFill });
-         success = success && cb->fillBuffer({ 0ull, WavefrontCountersPageSize, m_neeRequests }, 0u);
-         success = success && cb->pipelineBarrier(asset::EDF_NONE, { .memBarriers = fillToCompute });
-
-         beautyPC.wavefrontWave   = wave;
-         beautyPC.wavefrontBounce = 0;
-         success                  = success && cb->pushConstants(computeLayout, hlsl::ShaderStage::ESS_COMPUTE, 0, sizeof(beautyPC), &beautyPC);
-         success                  = success && cb->bindComputePipeline(m_construction.wavefrontInitPipeline.get());
-         success                  = success && cb->dispatch(initGroups, 1, 1);
-         success                  = success && cb->pipelineBarrier(asset::EDF_NONE, { .memBarriers = toNext });
-         success                  = success && cb->bindComputePipeline(m_construction.wavefrontFixupFirstPipeline.get());
-         success                  = success && cb->dispatch(1, 1, 1);
-
-         // per bounce: trace -> combined fixup (this bounce's NEE args + next bounce's trace args) -> nee
-         for (uint32_t bounce = 1; bounce <= bounces && success; bounce++)
-         {
-            beautyPC.wavefrontBounce = bounce;
-            success                  = success && cb->pushConstants(computeLayout, hlsl::ShaderStage::ESS_COMPUTE, 0, sizeof(beautyPC), &beautyPC);
-
-            success = success && cb->pipelineBarrier(asset::EDF_NONE, { .memBarriers = toNext });
-            success = success && cb->bindComputePipeline(tracePipeline);
-            success = success && cb->dispatchIndirect(rayArgsBinding);
-            success = success && cb->pipelineBarrier(asset::EDF_NONE, { .memBarriers = toNext });
-            success = success && cb->bindComputePipeline(m_construction.wavefrontFixupBouncePipeline.get());
-            success = success && cb->dispatch(1, 1, 1);
-            success = success && cb->pipelineBarrier(asset::EDF_NONE, { .memBarriers = toNext });
-            success = success && cb->bindComputePipeline(neePipeline);
-            success = success && cb->dispatchIndirect(neeArgsBinding);
          }
       }
    }

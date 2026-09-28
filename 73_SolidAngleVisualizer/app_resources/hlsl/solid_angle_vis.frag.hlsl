@@ -64,6 +64,7 @@ void computeSpherePos(SVertexAttributes vx, out float32_t2 ndc, out float32_t3 s
    float32_t2 ndc;
    computeSpherePos(vx, ndc, spherePos);
    VisContext::begin(ndc, spherePos, aaWidth);
+   DebugRecorder::begin(all(uint32_t2(vx.uv * pc.viewport.zw) == uint32_t2(0u, 0u)));
 
    shapes::OBBView<float32_t> view = shapes::OBBView<float32_t>::create(pc.modelMatrix);
    view.minCorner -= pc.shadingPoint;
@@ -73,11 +74,14 @@ void computeSpherePos(SVertexAttributes vx, out float32_t2 ndc, out float32_t3 s
    PyramidDebugVis<SelectedSampler>::apply(sampler, silhouette, view);
 
    uint32_t validSampleCount = 0;
+   // Stratified grid sized to the sample count; a fixed 8-wide grid leaves the domain past 64 samples.
+   const uint32_t  gridN    = max(uint32_t(ceil(sqrt(float32_t(pc.sampleCount)))), 1u);
+   const float32_t rcpGridN = 1.0f / float32_t(gridN);
    for (uint32_t i = 0; i < pc.sampleCount; i++)
    {
       float32_t2 xi = float32_t2(
-         (float32_t(i & 7u) + 0.5) / sqrt(pc.sampleCount) + ndc.x * 1e-9f,
-         (float32_t(i >> 3u) + 0.5) / sqrt(pc.sampleCount) + ndc.y * 1e-9f);
+         (float32_t(i % gridN) + 0.5f) * rcpGridN + ndc.x * 1e-9f,
+         (float32_t(i / gridN) + 0.5f) * rcpGridN + ndc.y * 1e-9f);
 
       typename SelectedSampler::cache_type cache;
       const float32_t3                     sampleDir = sampler.generate(xi, cache);

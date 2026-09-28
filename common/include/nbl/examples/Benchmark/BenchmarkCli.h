@@ -32,6 +32,8 @@ struct ParsedArgs
    // IBenchmark::samplesForCurrentRow). Default 3 trades 3 * targetBudgetMs
    // wall time for jitter-robust comparisons.
    uint32_t focusSamples = 3;
+   // Skip the unfocused pass entirely, so only --focus rows run.
+   bool focusOnly = false;
 };
 
 // Pure: parse argv into a ParsedArgs. Unknown flags are silently ignored;
@@ -70,6 +72,10 @@ inline ParsedArgs parseArgs(std::span<const std::string> argv, std::string defau
       else if (argv[i] == "--focus" && i + 1 < argv.size())
       {
          out.focus.push_back(splitFocusSpec(argv[++i]));
+      }
+      else if (argv[i] == "--focus-only")
+      {
+         out.focusOnly = true;
       }
       else if (argv[i] == "--focus-samples" && i + 1 < argv.size())
       {
@@ -111,6 +117,9 @@ inline void printHelp(nbl::system::ILogger* logger, std::string_view appName, st
       "                             jitter-robust comparisons. Default 3; clamped to [1, 32]. N=1\n"
       "                             matches the rest-phase single-shot path. Wall time per focused\n"
       "                             row scales linearly with N.\n"
+      "  --focus-only               skip the unfocused pass, so only --focus rows run. Turns --focus\n"
+      "                             from a precision tool into a filter; without it every row still\n"
+      "                             runs and focused ones merely run --focus-samples times.\n"
       "  --help, -h                 print this help\n"
       "\n"
       "Default behaviour: with no flags, the prior run's output (if present) is loaded as the single\n"

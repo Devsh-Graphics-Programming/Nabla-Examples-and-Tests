@@ -621,9 +621,6 @@ public:
       return true;
    }
 
-   // Whole-frame bench against `session`. Reused by --benchmark (CLI) and the
-   // GUI "Benchmark Current Session" button. The GUI path runs this inline on
-   // the UI thread, so the window freezes for ~targetBudgetMs.
    void runBenchmarkOnce(CSession* session, const std::string& sceneLabel, size_t sensorIdx)
    {
       if (!session)
@@ -647,11 +644,9 @@ public:
       });
 
       constexpr uint64_t targetBudgetMs = 1000; // unused in equal-spp mode (fixedTimedFrames), kept for the time-budget path
-      // Equal-spp comparison: run every row to the SAME samples-per-pixel so FLIP isolates
-      // per-sample variance (selection quality), not throughput. Must be <= the renderOnce
-      // maxSPPOverride cap and the 22-bit maxSPP field. Frame count is derived from the
-      // per-frame spp below.
-      constexpr uint64_t targetSamplesPerPixel = 64; // high-spp reference run (fp32 Beauty accumulation, RWMC bypassed)
+      // Equal-spp comparison: every row runs to the same spp so FLIP isolates per-sample variance, not throughput.
+      // Accumulation saturates at MaxSPP (15-bit maxSPP field, PoT for Sobol), so that is the ceiling.
+      constexpr uint64_t targetSamplesPerPixel = nbl::this_example::MaxSPP;
       const auto         renderSize            = session->getConstructionParams().uniforms.renderSize;
       const uint32_t     depth                 = session->getConstructionParams().type != CSession::sensor_type_e::Env ? 1u : 6u;
       const uint64_t     totalThreads          = uint64_t(renderSize.x) * uint64_t(renderSize.y) * uint64_t(depth);

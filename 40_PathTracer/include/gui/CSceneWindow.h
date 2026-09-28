@@ -33,8 +33,8 @@ public:
         std::function<void(float density)> onEmitterDensityChanged = nullptr;
         // push-constant uniform branch on the next frame, no rebuild needed.
         std::function<void(bool useAlias)> onUseAliasNEEChanged = nullptr;
-        // NEE architecture combo (0=inline, 1=batched deferral, 2=per-bounce wavefront). All three
-        // converge to the same image, no accumulation restart needed.
+        // NEE architecture combo (0=inline, 1=batched deferral). Both converge to the same image, no
+        // accumulation restart needed.
         std::function<void(int deferredMode)> onDeferredNEEChanged = nullptr;
         // Batched band count (request-buffer memory / bandCount); runtime-only, image unchanged.
         std::function<void(int bandCount)> onNeeBandCountChanged = nullptr;
@@ -116,7 +116,7 @@ private:
     bool m_isOpen = true;
     float m_emitterDensity = 0.1f;
     bool  m_useAliasNEE    = true;
-    int   m_deferredNEE    = 1; // 0=inline, 1=batched, 2=wavefront (matches CRenderer::DeferredNEEMode)
+    int   m_deferredNEE    = 1; // 0=inline, 1=batched (matches CRenderer::DeferredNEEMode)
     int   m_neeBandCount   = 4; // batched horizontal bands (matches CRenderer default)
     int   m_misMode        = 2; // 0=NEEOnly, 1=BxDFOnly, 2=Both (matches CSession::MisMode + renderer default)
     int   m_leafSampler    = 0; // 0=OBB,1=TriUniform,2=TriArvo,3=TriProjected (matches CSession::LightSampler)

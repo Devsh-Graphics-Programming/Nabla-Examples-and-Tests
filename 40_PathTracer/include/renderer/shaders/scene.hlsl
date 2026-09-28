@@ -32,10 +32,10 @@ struct SSceneUniforms
 
 		uint64_t pSampleSequence;
 		uint64_t pLightTreeNodes;
-		uint64_t pLightTreeLeaves;
 		uint64_t pDebugProbe;
 		uint64_t pEmitters;
-		uint64_t pEmitterToLeafIdx;
+		// PerTriangle only: selection-order triangle index (what a hit resolves to) -> emitter ID.
+		uint64_t pTriToEmitter;
 		// Maps instancedGeometryID (instanceCustomIndex + GeometryIndex()) -> emitter ID, so a ray hit
 		// resolves its emitter without treating instanceCustomIndex AS the emitter ID.
 
@@ -52,7 +52,7 @@ struct SSceneUniforms
 		uint64_t pEmitterOBB;
 		uint32_t aliasTableSize;
 		uint32_t lightTreeFirstLeafIndex;
-		uint32_t lightTreeNumLeavesPadded;
+		uint32_t numEmitters;
 		uint32_t subtreeAliasTotalEntries;
 		uint16_t sequenceSamplesLog2 : 5;  // TODO: make this compile time constant - Spec Constant?
 		uint16_t lastSequencePathDepth : 11; // TODO: what do we even need this for ? Also coult be a spec constant

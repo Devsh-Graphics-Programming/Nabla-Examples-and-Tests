@@ -115,6 +115,7 @@ public:
       std::string                                             outputPath;
       nbl::core::vector<nbl::core::vector<nbl::core::string>> focusVariants;
       uint32_t                                                focusSamples = 3; // --focus-samples, see samplesForCurrentRow
+      bool                                                    focusOnly    = false; // --focus-only, skip the unfocused pass
 
       bool isFocused(const nbl::core::vector<nbl::core::string>& name) const
       {
@@ -191,6 +192,9 @@ public:
          m_console.setSilent(false);
          m_console.printBaselineComparison(std::span<const nbl::core::vector<nbl::core::string>>(m_focusNames), m_baselines, m_results);
       }
+      benchLogFmt(m_console.getLogger(), nbl::system::ILogger::ELL_INFO,
+         "bench rest phase: silent={} focusOnly={} focusRows={} resultsSoFar={}",
+         m_console.silent(), m_cli.focusOnly, m_cli.focusVariants.size(), m_results.size());
       (runSpan(spans, false), ...);
    }
 
@@ -214,6 +218,20 @@ public:
 
       CliResult res;
       res.outputPath = parsed.outputPath;
+
+      {
+         std::string received;
+         for (const auto& a : cfg.argv)
+            received += std::format("[{}] ", a);
+         benchLogFmt(m_console.getLogger(), nbl::system::ILogger::ELL_INFO,
+            "bench CLI: argv ({} tokens): {}| parsed: focusOnly={} focusRows={} focusSamples={}",
+            cfg.argv.size(), received, parsed.focusOnly, parsed.focus.size(), parsed.focusSamples);
+      }
+      if (parsed.focusOnly && parsed.focus.empty())
+         benchLogFmt(m_console.getLogger(), nbl::system::ILogger::ELL_WARNING,
+            "--focus-only given with no --focus rows: NO benchmarks will run. "
+            "Add --focus \"<section> > <family> > <variant>\" for each row you want, or drop --focus-only. "
+            "(A multi-line command pasted into PowerShell drops lines after a cmd-style '^' continuation.)");
 
       if (!parsed.baselines.empty())
       {
@@ -256,6 +274,7 @@ public:
 
       res.focusVariants = std::move(parsed.focus);
       res.focusSamples  = parsed.focusSamples;
+      res.focusOnly     = parsed.focusOnly;
       m_cli             = res;
       return res;
    }
@@ -329,7 +348,7 @@ public:
    {
       const bool silent    = isFocusPhase();
       const bool inFocus   = isFocused(m_name);
-      const bool shouldRun = silent ? inFocus : !inFocus;
+      const bool shouldRun = silent ? inFocus : (!inFocus && !isFocusOnly());
       if (shouldRun)
          doRun();
    }
@@ -357,6 +376,7 @@ protected:
 
    bool isFocusPhase() const { return m_aggregator.m_console.silent(); }
    bool isFocused(const core::vector<core::string>& name) const { return m_aggregator.m_cli.isFocused(name); }
+   bool isFocusOnly() const { return m_aggregator.m_cli.focusOnly; }
    void registerVariant(std::span<const std::string> name) { m_aggregator.m_console.registerVariant(name); }
    void registerVariant(std::initializer_list<std::string_view> name) { m_aggregator.m_console.registerVariant(name); }
 

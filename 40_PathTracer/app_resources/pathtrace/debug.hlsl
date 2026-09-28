@@ -198,7 +198,7 @@ float aabbEdgeProximity(float32_t3 p, float32_t3 bMin, float32_t3 bMax)
    const float32_t3 rayD = primary.ray.direction.getDirection();
    const float      tHit = payload.tHit;
 
-   const bool     haveTree  = gScene.init.pLightTreeLeaves != 0 && gScene.init.lightTreeNumLeavesPadded > 0u;
+   const bool     haveTree  = gScene.init.pEmitters != 0 && gScene.init.numEmitters > 0u;
    const uint32_t firstLeaf = gScene.init.lightTreeFirstLeafIndex;
 
    // Probe telemetry (CPU-computed; see SDebugProbe). No descent on the GPU.
@@ -235,12 +235,10 @@ float aabbEdgeProximity(float32_t3 p, float32_t3 bMin, float32_t3 bMax)
       bool       gotEdge_p = false;
       float32_t3 edgeCol_p = col;
       NBL_HLSL_LOOP
-      for (uint32_t l = 0u; l < gScene.init.lightTreeNumLeavesPadded; ++l)
+      for (uint32_t l = 0u; l < gScene.init.numEmitters; ++l)
       {
          nbl::this_example::LightTreeLeaf leaf;
-         nbl::this_example::BDALightTreeLeafAccessor::create(gScene.init.pLightTreeLeaves).template get<nbl::this_example::LightTreeLeaf, uint32_t>(l, leaf);
-         if (leaf.emitterID >= NoGeometryHit)
-            continue;
+         nbl::this_example::BDALightTreeLeafAccessor::create(gScene.init.pEmitters, gScene.init.numEmitters).template get<nbl::this_example::LightTreeLeaf, uint32_t>(l, leaf);
          const uint32_t leafHeap = firstLeaf + l;
          const bool     onPath   = onDescentPath(leafHeap, descentLeaf);
          const float    t        = rayAabbEnterT(rayO, rayD, primary.tMin, bestT_p, leaf.bboxMin, leaf.bboxMax);

@@ -275,7 +275,7 @@ void packAliasByMode(ELightLeafMode mode, std::span<const float> prob, std::span
 } // namespace
 
 
-SLightTree buildLightTreeCPU(std::span<const SLightTreeLeaf> leaves, ELightLeafMode mode)
+SLightTree buildLightTreeCPU(std::span<SLightTreeLeaf> leaves, ELightLeafMode mode)
 {
    SLightTree tree;
    if (leaves.empty())
@@ -295,9 +295,6 @@ SLightTree buildLightTreeCPU(std::span<const SLightTreeLeaf> leaves, ELightLeafM
    tree.numLeavesActual = numActual;
    tree.numLeavesPadded = numPadded;
    tree.firstLeafIndex  = firstLeafIdx;
-
-   constexpr uint32_t          kSentinel = ~0u;
-   nbl::core::vector<uint32_t> order(numPadded, kSentinel);
 
    // Morton Z-order in runs of 4: under occlusion, tight clusters collapse the K=16 RIS pool into one
    // cluster and drop shadow-ray survival, so Morton's looser clusters (keeping candidate diversity) win.
@@ -323,23 +320,22 @@ SLightTree buildLightTreeCPU(std::span<const SLightTreeLeaf> leaves, ELightLeafM
       sorted.push_back({ morton_t::create(quantized).value, i });
    }
    std::ranges::sort(sorted, [](const SCodedIndex& a, const SCodedIndex& b) { return a.code < b.code; });
-   for (uint32_t i = 0; i < numActual; ++i)
-      order[i] = sorted[i].index;
 
-   tree.emitterToLeafIdx.resize(numActual);
+   // Leaf-array position becomes the emitter ID; real leaves sit at [0, numActual), padding after.
+   tree.emitterRemap.resize(numActual);
    const aabb_t emptyAABB = aabb_t::create();
    for (uint32_t i = 0; i < numPadded; ++i)
    {
-      SLightTreeNode& n   = tree.nodes[firstLeafIdx + i];
-      const uint32_t  src = order[i];
-      if (src != kSentinel)
+      SLightTreeNode& n = tree.nodes[firstLeafIdx + i];
+      if (i < numActual)
       {
-         const auto& leaf = leaves[src];
-         n.bbox           = leaf.worldAABB;
-         n.power          = leaf.power;
-         n.emitterID      = leaf.emitterID;
-         assert(leaf.emitterID < numActual);
-         tree.emitterToLeafIdx[leaf.emitterID] = firstLeafIdx + i;
+         auto& leaf = leaves[sorted[i].index];
+         assert(leaf.emitterID == sorted[i].index);
+         leaf.emitterID                     = i;
+         tree.emitterRemap[sorted[i].index] = i;
+         n.bbox                             = leaf.worldAABB;
+         n.power                            = leaf.power;
+         n.emitterID                        = i;
       }
       else
       {
@@ -407,13 +403,11 @@ SLightTree buildLightTreeCPU(std::span<const SLightTreeLeaf> leaves, ELightLeafM
       }
    }
 
-   // May contain one trailing zero-power bucket if numActual is a power of two (PoT-dodge from
-   // AliasTableBuilder). AliasTableBuilder expects std::vector (std::allocator), not nbl::core::vector
-   // (aligned_allocator), so use std::vector for the scratch then copy out.
+   // AliasTableBuilder wants std::vector (std::allocator), not nbl::core::vector (aligned_allocator).
    {
       std::vector<float> weights(numActual);
-      for (uint32_t i = 0; i < numActual; ++i)
-         weights[i] = leaves[i].power;
+      for (const auto& leaf : leaves)
+         weights[leaf.emitterID] = leaf.power;
       std::vector<float>    prob;
       std::vector<uint32_t> alias;
       std::vector<float>    pdfs;
@@ -501,17 +495,6 @@ SLightTree buildLightTreeCPU(std::span<const SLightTreeLeaf> leaves, ELightLeafM
             tree.subtreeAliasPdfs[off + k]    = perWPdfs[W][k];
          }
       }
-   }
-
-   tree.leaves.resize(numPadded);
-   for (uint32_t k = 0; k < numPadded; ++k)
-   {
-      const auto&         src = tree.nodes[firstLeafIdx + k];
-      SLightTreeLeaf_GPU& dst = tree.leaves[k];
-      dst.bboxMin             = src.bbox.minVx;
-      dst.bboxMax             = src.bbox.maxVx;
-      dst.emitterID           = (src.emitterID == ~0u) ? nbl::hlsl::sampling::LightcutTreePackedNoEmitter : src.emitterID;
-      dst._pad                = 0u;
    }
 
    return tree;
@@ -798,12 +781,12 @@ static float lightcutTreeChildWeightCPU(const SLightTreeNode& c, const nbl::hlsl
 
 void computePerEmitterBackwardPdfCPU(const SLightTree& tree, const nbl::hlsl::float32_t3& probePoint, const nbl::hlsl::float32_t3& probeNormal, std::span<float> out)
 {
-   const uint32_t numEmitters = uint32_t(tree.emitterToLeafIdx.size());
+   const uint32_t numEmitters = tree.numLeavesActual;
    assert(out.size() >= numEmitters);
 
    for (uint32_t e = 0u; e < numEmitters; ++e)
    {
-      const uint32_t leafHeap = tree.emitterToLeafIdx[e];
+      const uint32_t leafHeap = tree.firstLeafIndex + e;
 
       // Single-leaf tree: there are no internal nodes, leaf is the root.
       if (leafHeap == 0u)

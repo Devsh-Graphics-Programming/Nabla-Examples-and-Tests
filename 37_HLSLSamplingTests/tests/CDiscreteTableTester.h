@@ -154,20 +154,23 @@ class CDiscreteTableTester
    //   - bucket contributions reconstruct correct scaled probabilities
    //   - PDFs sum to 1 and match weight/totalWeight
    //   - alias indices in range, probabilities in [0, 1]
-   // Builder transparently pads PoT N to N+1; actual table size comes back
-   // as `tableN` and is what gets compared against.
    bool testAliasTable(const char* name, const std::vector<float>& weights) const
    {
-      const uint32_t userN = static_cast<uint32_t>(weights.size());
+      const uint32_t N = static_cast<uint32_t>(weights.size());
 
       std::vector<float>    outProbability;
       std::vector<uint32_t> outAlias;
       std::vector<float>    outPdf;
       const uint32_t        tableN = nbl::hlsl::sampling::AliasTableBuilder<float>::build({weights}, outProbability, outAlias, outPdf);
+      if (tableN != N)
+      {
+         m_logger->log("AliasTable[%s] table size %u != N %u", system::ILogger::ELL_ERROR, name, tableN, N);
+         return false;
+      }
 
-      // Accumulate bucket contributions over the full (possibly padded) table
-      std::vector<float> dest(tableN, 0.0f);
-      for (uint32_t i = 0; i < tableN; i++)
+      // Accumulate bucket contributions over the table
+      std::vector<float> dest(N, 0.0f);
+      for (uint32_t i = 0; i < N; i++)
       {
          dest[i] += outProbability[i];
          dest[outAlias[i]] += (1.0f - outProbability[i]);
@@ -176,15 +179,15 @@ class CDiscreteTableTester
       bool pass = true;
 
       float totalWeight = 0.0f;
-      for (uint32_t i = 0; i < userN; i++)
+      for (uint32_t i = 0; i < N; i++)
          totalWeight += weights[i];
 
-      // Real buckets: expected scaled prob = weight/total * tableN
-      for (uint32_t i = 0; i < userN; i++)
+      // Expected scaled prob = weight/total * N
+      for (uint32_t i = 0; i < N; i++)
       {
-         const float expected  = weights[i] / totalWeight * float(tableN);
+         const float expected  = weights[i] / totalWeight * float(N);
          const float err       = std::abs(expected - dest[i]);
-         const float tolerance = std::max(1e-5f * float(tableN), 1e-4f);
+         const float tolerance = std::max(1e-5f * float(N), 1e-4f);
 
          if (err > tolerance)
          {
@@ -194,27 +197,19 @@ class CDiscreteTableTester
          }
       }
 
-      // Dummy bucket (only when padded): no real bucket aliases to it -> dest[userN] should be 0.
-      if (tableN != userN && std::abs(dest[userN]) > 1e-4f)
+      // Alias indices in range [0, N)
+      for (uint32_t i = 0; i < N; i++)
       {
-         m_logger->log("AliasTable[%s] dummy bucket %u has non-zero reconstructed probability %f",
-            system::ILogger::ELL_ERROR, name, userN, dest[userN]);
-         pass = false;
-      }
-
-      // Alias indices in range [0, tableN)
-      for (uint32_t i = 0; i < tableN; i++)
-      {
-         if (outAlias[i] >= tableN)
+         if (outAlias[i] >= N)
          {
             m_logger->log("AliasTable[%s] alias[%u] = %u out of range [0, %u)",
-               system::ILogger::ELL_ERROR, name, i, outAlias[i], tableN);
+               system::ILogger::ELL_ERROR, name, i, outAlias[i], N);
             pass = false;
          }
       }
 
       pass &= verifyPdf("AliasTable", name, outPdf.data(), weights);
-      pass &= verifyRange01("AliasTable", name, "probability", outProbability.data(), tableN);
+      pass &= verifyRange01("AliasTable", name, "probability", outProbability.data(), N);
 
       if (pass)
          m_logger->log("  [%s] PASSED", system::ILogger::ELL_PERFORMANCE, name);

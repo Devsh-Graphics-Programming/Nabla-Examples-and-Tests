@@ -169,6 +169,11 @@ class HLSLSamplingTests final : public application_templates::MonoDeviceApplicat
       static_assert(sampling::concepts::ResamplableSampler<TreeSampler>);
 
       // --- BackwardTractableSampler (level 3) --- TractableSampler + backwardPdf(codomain_type), forwardWeight(domain_type, cache_type), backwardWeight(codomain_type)
+      static_assert(sampling::concepts::BackwardTractableSampler<sampling::CumulativeProbabilitySampler<float32_t, float32_t, uint32_t, ReadOnlyAccessor<float32_t>, sampling::TRACKING>>);
+      static_assert(sampling::concepts::BackwardTractableSampler<sampling::CumulativeProbabilitySampler<float32_t, float32_t, uint32_t, ReadOnlyAccessor<float32_t>, sampling::YOLO>>);
+      static_assert(sampling::concepts::BackwardTractableSampler<sampling::CumulativeProbabilitySampler<float32_t, float32_t, uint32_t, ReadOnlyAccessor<float32_t>, sampling::EYTZINGER>>);
+      static_assert(sampling::concepts::BackwardTractableSampler<sampling::PackedAliasTableA<float32_t, float32_t, uint32_t, ReadOnlyAccessor<uint32_t>, ReadOnlyAccessor<float32_t>, 26>>);
+      static_assert(sampling::concepts::BackwardTractableSampler<sampling::PackedAliasTableB<float32_t, float32_t, uint32_t, ArrayAccessor<sampling::PackedAliasEntryB<float>, 4>, ReadOnlyAccessor<float32_t>, 26>>);
       static_assert(sampling::concepts::BackwardTractableSampler<sampling::Linear<float>>);
       static_assert(sampling::concepts::BackwardTractableSampler<sampling::Bilinear<float>>);
       static_assert(sampling::concepts::BackwardTractableSampler<sampling::UniformHemisphere<float>>);
@@ -349,8 +354,11 @@ class HLSLSamplingTests final : public application_templates::MonoDeviceApplicat
             // row to hit the budget. The old per-N tuning table is gone.
             static constexpr uint32_t kSweepNs[] = {
                2u, 4u, 8u, 16u, 32u, 64u, 100u, 128u, 256u, 400u,
-               512u, 1024u, 2048u, 2049u, 3000u, 4096u, 7000u, 8192u, 10'000u, 16'384u, 32'768u,
-               65'536u, 131'072u, 262'144u, 524'288u, 1'000'000u, 1'048'576u, 2'097'152u, 16'777'216u, 20'971'520u, 25'165'824u, 33'554'432u};
+               512u, 1024u, 2048u, 2049u, 3000u, 4096u, 7000u, 8192u, 10'000u,
+               12'288u, 16'384u, 24'576u, 32'768u, 65'536u, 131'072u, 262'144u,
+               393'216u, 524'288u, 786'432u, 1'000'000u, 1'048'576u, 2'097'152u,
+               4'194'304u, 6'291'456u, 8'388'608u, 12'582'912u, 16'777'216u,
+               20'971'520u, 25'165'824u, 33'554'432u};
             dsData.sweepNs                 = kSweepNs;
 
             CDiscreteSamplerBenchmark discreteBench(agg, dsData);

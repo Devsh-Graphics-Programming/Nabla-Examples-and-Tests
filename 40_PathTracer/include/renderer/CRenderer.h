@@ -117,20 +117,13 @@ class CRenderer : public core::IReferenceCounted, public core::InterfaceUnmovabl
          std::array<core::smart_refctd_ptr<asset::IShader>,uint8_t(CSession::RenderMode::Count)> shaders;
          std::array<core::smart_refctd_ptr<asset::IShader>,uint8_t(CSession::BeautyVariant::Count)> beautyVariantShaders;
          std::array<core::smart_refctd_ptr<video::IGPUPipelineLayout>,uint8_t(CSession::RenderMode::Count)> renderingLayouts;
-         // Deferred (wavefront) NEE: shared compute pipeline layout (same DS layouts, ESS_COMPUTE push
+         // Deferred NEE: shared compute pipeline layout (same DS layouts, ESS_COMPUTE push
          // constants) + one fused NEE+resolve pipeline per (light sampler, alias/tree, MIS mode). Flat
          // index = samplerSlot * 2 + (Both ? 1 : 0), where samplerSlot = (useAlias ? Count : 0) + sampler
          // (so 0..3 = tree, 4..7 = alias; slot 4 is the OBB-alias the GUI defaults to).
          constexpr static inline uint8_t NeeDeferredPipelineCount = uint8_t(CSession::LightSampler::Count)*2/*tree+alias*/*2/*MIS*/;
          core::smart_refctd_ptr<video::IGPUPipelineLayout> neeDeferredLayout;
          std::array<core::smart_refctd_ptr<video::IGPUComputePipeline>,NeeDeferredPipelineCount> neeDeferredPipelines;
-         // Per-bounce indirect wavefront: trace index = (leafMode!=OBB)*2 + Both, NEE same flat scheme
-         // as neeDeferredPipelines; init/fixups are define-independent (built from one trace blob).
-         core::smart_refctd_ptr<video::IGPUComputePipeline> wavefrontInitPipeline;
-         core::smart_refctd_ptr<video::IGPUComputePipeline> wavefrontFixupFirstPipeline;
-         core::smart_refctd_ptr<video::IGPUComputePipeline> wavefrontFixupBouncePipeline;
-         std::array<core::smart_refctd_ptr<video::IGPUComputePipeline>,4> wavefrontTracePipelines;
-         std::array<core::smart_refctd_ptr<video::IGPUComputePipeline>,NeeDeferredPipelineCount> wavefrontNeePipelines;
          // TODO
 //			std::array<core::smart_refctd_ptr<video::IGPURayTracingPipeline>,uint8_t(CSession::RenderMode::Count)> genericPipelines;
 
@@ -176,12 +169,11 @@ class CRenderer : public core::IReferenceCounted, public core::InterfaceUnmovabl
       inline CSession::MisMode getMisMode() const { return m_misMode; }
 
       // NEE architecture A/B: 0 = inline megakernel, 1 = batched deferral (per-bounce slots + one fused
-      // compute pass), 2 = per-bounce indirect wavefront (path pool + ID queues, memory O(live paths)).
+      // compute pass).
       enum class DeferredNEEMode : uint8_t
       {
          Inline,
          Batched,
-         Wavefront,
          Count
       };
       inline void setDeferredNEEMode(DeferredNEEMode m) { m_deferredMode = m; }

@@ -81,9 +81,9 @@ struct NextEventEstimator
 
 #if NBL_NEE_LEAF_MODE == 0 && !NBL_NEE_DEFERRED
 #if NBL_NEE_PROJECTED_SPHRECT
-   using pyramid_t = nbl::hlsl::sampling::SphericalPyramid<NBL_NEE_CALIPER != 0, nbl::hlsl::sampling::ProjectedSphericalRectangle<float32_t, false> >;
+   using pyramid_t = nbl::hlsl::sampling::SphericalPyramid<NBL_NEE_CALIPER != 0, nbl::hlsl::sampling::ProjectedSphericalRectangle<float32_t, false>, NBL_NEE_SILHOUETTE_TEST>;
 #else
-   using pyramid_t = nbl::hlsl::sampling::SphericalPyramid<NBL_NEE_CALIPER != 0, nbl::hlsl::sampling::SphericalRectangle<float32_t>>;
+   using pyramid_t = nbl::hlsl::sampling::SphericalPyramid<NBL_NEE_CALIPER != 0, nbl::hlsl::sampling::SphericalRectangle<float32_t>, NBL_NEE_SILHOUETTE_TEST>;
 #endif
 
    // Direction skips the inverse affine's translation column and is left un-renormalized, so ray 1's
@@ -132,27 +132,17 @@ struct NextEventEstimator
 #if !NBL_NEE_DEFERRED
    // ---- selection RIS, shared by ALL leaf modes (purely bbox-based) + the OBB-only silhouette -------
 #if NBL_NEE_LEAF_MODE == 0
-   static shapes::ClippedSilhouette __buildSilhouette(NBL_REF_ARG(shapes::OBBView<float32_t>) obbView,
-      const float32_t3 hitPos,
-      const float32_t3 frameT,
-      const float32_t3 frameB,
-      const float32_t3 normal,
-      const uint32_t   emitterID)
+   // World frame relative to the shading point; the shading plane enters only as the clip normal.
+   static shapes::ClippedSilhouette __buildSilhouette(NBL_REF_ARG(shapes::OBBView<float32_t>) obbView, const float32_t3 hitPos, const float32_t3 normal, const uint32_t emitterID)
    {
-
       const uint64_t   addr = gScene.init.pEmitterOBB + uint64_t(emitterID) * 48ull;
       const float32_t4 r0   = vk::RawBufferLoad<float32_t4>(addr + 0ull, 16u);
       const float32_t4 r1   = vk::RawBufferLoad<float32_t4>(addr + 16ull, 16u);
       const float32_t4 r2   = vk::RawBufferLoad<float32_t4>(addr + 32ull, 16u);
-      const float32_t3 wc0       = float32_t3(r0.x, r1.x, r2.x);
-      const float32_t3 wc1       = float32_t3(r0.y, r1.y, r2.y);
-      const float32_t3 wc2       = float32_t3(r0.z, r1.z, r2.z);
-      const float32_t3 originRel = float32_t3(r0.w, r1.w, r2.w) - hitPos;
-      obbView.minCorner  = float32_t3(hlsl::dot(originRel, frameT), hlsl::dot(originRel, frameB), hlsl::dot(originRel, normal));
-      obbView.columns[0] = float32_t3(hlsl::dot(wc0, frameT), hlsl::dot(wc0, frameB), hlsl::dot(wc0, normal));
-      obbView.columns[1] = float32_t3(hlsl::dot(wc1, frameT), hlsl::dot(wc1, frameB), hlsl::dot(wc1, normal));
-      obbView.columns[2] = float32_t3(hlsl::dot(wc2, frameT), hlsl::dot(wc2, frameB), hlsl::dot(wc2, normal));
-
+      obbView.minCorner  = float32_t3(r0.w, r1.w, r2.w) - hitPos;
+      obbView.columns[0] = float32_t3(r0.x, r1.x, r2.x);
+      obbView.columns[1] = float32_t3(r0.y, r1.y, r2.y);
+      obbView.columns[2] = float32_t3(r0.z, r1.z, r2.z);
 
       if (hlsl::dot(obbView.columns[0], obbView.columns[0]) < 1e-12f && hlsl::dot(hlsl::cross(obbView.columns[1], obbView.columns[2]), obbView.minCorner) < 0.f)
       {
@@ -160,24 +150,16 @@ struct NextEventEstimator
          obbView.columns[1]   = obbView.columns[2];
          obbView.columns[2]   = tmp;
       }
-      return shapes::ClippedSilhouette::create(obbView);
+      return shapes::ClippedSilhouette::create(obbView, normal);
    }
 #endif // NBL_NEE_LEAF_MODE == 0 (silhouette)
 
-   // Emitter's leaf bbox, read from the co-located emitter record (48 B: radiance | leafHeap |
-   // bboxMin | bboxMax | pad). One direct load on emitterID, so no emitter -> leaf reverse-map ->
-   // leaf-record dependent 2-load chain (which was the path tracer's worst LGSB stall line).
+   static BDALightTreeLeafAccessor __leafAccessor() { return BDALightTreeLeafAccessor::create(gScene.init.pEmitters, gScene.init.numEmitters); }
+
    static LightTreeLeaf __getLeaf(const uint32_t emitterIdx)
    {
-      const uint64_t addr = gScene.init.pEmitters + uint64_t(emitterIdx) * uint64_t(EmitterRecordSize);
-      // Two 16-byte-aligned uint4 taps over the bbox half of the record (the 48 B stride keeps the
-      // record 16-aligned). b1 = bboxMin.xyz | bboxMax.x; b2 = bboxMax.yz | pad | pad.
-      const uint32_t4 b1 = vk::RawBufferLoad<uint32_t4>(addr + 16ull, 16u);
-      const uint32_t4 b2 = vk::RawBufferLoad<uint32_t4>(addr + 32ull, 16u);
-      LightTreeLeaf   leaf;
-      leaf.bboxMin   = float32_t3(asfloat(b1.x), asfloat(b1.y), asfloat(b1.z));
-      leaf.bboxMax   = float32_t3(asfloat(b1.w), asfloat(b2.x), asfloat(b2.y));
-      leaf.emitterID = emitterIdx;
+      LightTreeLeaf leaf;
+      __leafAccessor().template get<LightTreeLeaf, uint32_t>(emitterIdx, leaf);
       return leaf;
    }
 
@@ -242,7 +224,7 @@ struct NextEventEstimator
 #else
       {
          LightTreeSampler             tree = LightTreeSampler::create(BDALightTreeNodeAccessor::create(gScene.init.pLightTreeNodes),
-            BDALightTreeLeafAccessor::create(gScene.init.pLightTreeLeaves),
+            __leafAccessor(),
             BDASubtreeAliasAccessor::create(gScene.init.pSubtreeAlias, gScene.init.lightTreeFirstLeafIndex, gScene.init.subtreeAliasTotalEntries),
             gScene.init.lightTreeFirstLeafIndex,
             hitPos,
@@ -282,20 +264,16 @@ struct NextEventEstimator
       if (!(c.pProposal > 0.f) || c.emitterID >= NonEmitterCustomIndex)
          return r;
 
-      float32_t3 frameT, frameB;
-      math::frisvad<float32_t3>(shadingNormal, frameT, frameB);
-
       shapes::OBBView<float32_t>      obbView;
-      const shapes::ClippedSilhouette silhouette = __buildSilhouette(obbView, hitPos, frameT, frameB, shadingNormal, c.emitterID);
+      const shapes::ClippedSilhouette silhouette = __buildSilhouette(obbView, hitPos, shadingNormal, c.emitterID);
       if (silhouette.count == 0u)
          return r;
 
-      pyramid_t pyramid = pyramid_t::create(silhouette, obbView);
+      pyramid_t pyramid = pyramid_t::create(silhouette, obbView, shadingNormal);
       // Deterministic midpoint direction: u = (0.5, 0.5) samples the centroid of the silhouette.
       pyramid_t::cache_type pyrCache;
-      const float32_t3      tangentDir = pyramid.generate(float32_t2(0.5f, 0.5f), pyrCache);
-      r.pickedDir                      = hlsl::normalize(tangentDir.x * frameT + tangentDir.y * frameB + tangentDir.z * shadingNormal);
-      r.emitterID                      = c.emitterID;
+      r.pickedDir = hlsl::normalize(pyramid.generate(float32_t2(0.5f, 0.5f), pyrCache));
+      r.emitterID = c.emitterID;
       return r;
    }
 #endif
@@ -308,15 +286,13 @@ struct NextEventEstimator
       AliasSampler aliasBwd = AliasSampler::create(BDAReadAccessor<uint32_t>::create(gScene.init.pAliasEntries), BDAReadAccessor<float32_t>::create(gScene.init.pAliasPdf), gScene.init.aliasTableSize);
       return aliasBwd.backwardPdf(emitterIdx);
 #else
-      // leafHeap is co-located in the emitter record (offset 12), so no reverse-map load.
-      const uint32_t   leafIdxBwd = vk::RawBufferLoad<uint32_t>(gScene.init.pEmitters + uint64_t(emitterIdx) * uint64_t(EmitterRecordSize) + 12ull);
-      LightTreeSampler treeBwd    = LightTreeSampler::create(BDALightTreeNodeAccessor::create(gScene.init.pLightTreeNodes),
-         BDALightTreeLeafAccessor::create(gScene.init.pLightTreeLeaves),
+      LightTreeSampler treeBwd = LightTreeSampler::create(BDALightTreeNodeAccessor::create(gScene.init.pLightTreeNodes),
+         __leafAccessor(),
          BDASubtreeAliasAccessor::create(gScene.init.pSubtreeAlias, gScene.init.lightTreeFirstLeafIndex, gScene.init.subtreeAliasTotalEntries),
          gScene.init.lightTreeFirstLeafIndex,
          prevShadingHitPos,
          prevShadingNormal);
-      return treeBwd.backwardPdf(leafIdxBwd);
+      return treeBwd.backwardPdf(gScene.init.lightTreeFirstLeafIndex + emitterIdx);
 #endif
    }
 
@@ -419,22 +395,18 @@ struct NextEventEstimator
    float32_t __emissionDeweight(const uint32_t emitterIdx, const float32_t3 currentHitPos, const float32_t emitterSelectBackPdf, const float32_t otherTechniqueHeuristic)
    {
       const LightTreeLeaf leaf = __getLeaf(emitterIdx);
-      float32_t3          prevT, prevB;
-      math::frisvad<float32_t3>(prevShadingNormal, prevT, prevB);
 
       shapes::OBBView<float32_t>      obbView;
-      const shapes::ClippedSilhouette silhouette = __buildSilhouette(obbView, prevShadingHitPos, prevT, prevB, prevShadingNormal, emitterIdx);
+      const shapes::ClippedSilhouette silhouette = __buildSilhouette(obbView, prevShadingHitPos, prevShadingNormal, emitterIdx);
       if (silhouette.count == 0u)
          return 1.f;
 
-      // obbView/silhouette live in the shading tangent frame; the arrival direction must be expressed
-      // there too. backwardWeight is the analytic projected density cos/projSolidAngle. Same 1/2pi
-      // hemisphere roll-off as forward; rectProto<=0 -> no deweight, rectProto=inf -> deweight 0 (no NaN).
+      // backwardWeight is the analytic projected density cos/projSolidAngle. Same 1/2pi hemisphere
+      // roll-off as forward; rectProto<=0 -> no deweight, rectProto=inf -> deweight 0 (no NaN).
       const float32_t3 dirWorld = hlsl::normalize(currentHitPos - prevShadingHitPos);
-      const float32_t3 dirLocal = float32_t3(hlsl::dot(dirWorld, prevT), hlsl::dot(dirWorld, prevB), hlsl::dot(dirWorld, prevShadingNormal));
 
-      pyramid_t       sampler    = pyramid_t::create(silhouette, obbView);
-      const float32_t rectWeight = sampler.backwardWeight(dirLocal);
+      pyramid_t       sampler    = pyramid_t::create(silhouette, obbView, prevShadingNormal);
+      const float32_t rectWeight = sampler.backwardWeight(dirWorld);
       const float32_t rectProto  = hlsl::max(rectWeight - 0.5f / numbers::pi<float32_t>, 0.f);
       if (!(rectProto > 0.f))
          return 1.f;
@@ -457,7 +429,7 @@ struct NextEventEstimator
 // Deferred raygen compiles the deweight machinery out and records the deweight-needing hits instead;
 // the fused compute pass calls this full version.
 #if NBL_MIS_MODE == NBL_MIS_MODE_BOTH && !NBL_NEE_DEFERRED
-      if (otherTechniqueHeuristic > MISWeightThreshold && gScene.init.pEmitterToLeafIdx != 0)
+      if (otherTechniqueHeuristic > MISWeightThreshold)
       {
          // Same-emitter cache hit (set at NEE forward time) supplies the selection pdf for free; a miss
          // passes a negative sentinel so the backward climb runs where it is cheapest. In the callable
@@ -480,13 +452,13 @@ struct NextEventEstimator
    }
 
 #if !NBL_NEE_DEFERRED
-   // Traces both shadow rays itself from shadowOrigin and assembles the contribution ONLY for visible
+   // Traces both shadow rays itself from hitPos + N * shadowOffset and assembles the contribution ONLY for visible
    // samples, so the caller just multiplies res.contribution by albedo when res.valid. Caches the
    // selection pdf for the next bounce's emission-side MIS.
    SForwardSample forwardNEE(const float32_t3 hitPos,
-      const float32_t3                        shadowOrigin,
+      const float32_t                         shadowOffset,
       const float32_t3                        shadingNormal,
-      NBL_CONST_REF_ARG(isotropic_interaction_t) interaction,
+      NBL_CONST_REF_ARG(ray_dir_info_t) V,
       NBL_CONST_REF_ARG(brdf_t) diffuse,
       const spectral_type throughput,
       const float32_t3    randNEE,
@@ -505,7 +477,8 @@ struct NextEventEstimator
       // the proposal pdf is still exact, RIS only needs marginals.
       static const uint16_t kLightCandidates = uint16_t(NEE_LIGHT_CANDIDATES);
       float32_t             sumG             = 0.f;
-      uint16_t              winnerIdx        = 0u;
+      uint32_t              winnerEmitterID  = NonEmitterCustomIndex;
+      float32_t             winnerProposal   = 0.f;
       float32_t             winnerGeom       = 0.f;
       bool                  selFound         = false;
       float32_t             selPick          = randNEE2.z; // rescaled within the chosen branch each step to stay uniform
@@ -520,10 +493,11 @@ struct NextEventEstimator
             const float32_t pReplace = g / sumG; // first valid candidate: pReplace == 1 -> always wins
             if (selPick < pReplace)
             {
-               winnerIdx  = m;
-               winnerGeom = g;
-               selFound   = true;
-               selPick    = selPick / pReplace;
+               winnerEmitterID = cand.emitterID;
+               winnerProposal  = cand.pProposal;
+               winnerGeom      = g;
+               selFound        = true;
+               selPick         = selPick / pReplace;
             }
             else
                selPick = (selPick - pReplace) / (1.f - pReplace);
@@ -536,24 +510,17 @@ struct NextEventEstimator
 #endif // NBL_NEE_STATS
          return res;
       }
-      // Redraw only the winner; same rotation reproduces candidate winnerIdx's leaf.
-      const float32_t       uWinner = __rotate1(randNEE.x, uint32_t(winnerIdx), uint32_t(kLightCandidates));
-      const SLightCandidate winner  = __drawPowerCandidate(uWinner, hitPos, shadingNormal);
       // (1/M) sum(t_i/p_i) / t_winner with t_i = power_i * geom_i, p_i = power_i / totalPower.
-      const float32_t selWeight = (sumG / float32_t(kLightCandidates)) / (winnerGeom * winner.pProposal);
-      const uint32_t  emitterID = winner.emitterID;
-
-      const spectral_type emission = vk::RawBufferLoad<float32_t3>(gScene.init.pEmitters + uint64_t(emitterID) * uint64_t(EmitterRecordSize));
+      const float32_t selWeight = (sumG / float32_t(kLightCandidates)) / (winnerGeom * winnerProposal);
+      const uint32_t  emitterID = winnerEmitterID;
 
       prevDescentNeeEmitterID = emitterID;
-      prevDescentNeePdf       = winner.pProposal;
+      prevDescentNeePdf       = winnerProposal;
 
       // ---- directional sampler setup (leaf-mode-specific) -----------------------------------------
 #if NBL_NEE_LEAF_MODE == 0
-      float32_t3 frameT, frameB;
-      math::frisvad<float32_t3>(shadingNormal, frameT, frameB);
       shapes::OBBView<float32_t>      obbView;
-      const shapes::ClippedSilhouette silhouette = __buildSilhouette(obbView, hitPos, frameT, frameB, shadingNormal, emitterID);
+      const shapes::ClippedSilhouette silhouette = __buildSilhouette(obbView, hitPos, shadingNormal, emitterID);
       // Bail out on degenerate silhouette (observer inside OBB or fully horizon-clipped).
       if (silhouette.count == 0u)
       {
@@ -562,20 +529,30 @@ struct NextEventEstimator
 #endif // NBL_NEE_STATS
          return res;
       }
-      pyramid_t pyramid = pyramid_t::create(silhouette, obbView);
+      pyramid_t pyramid = pyramid_t::create(silhouette, obbView, shadingNormal);
 #else // NBL_NEE_LEAF_MODE != 0
       float32_t3 v0, v1, v2;
       __getTriVerts(emitterID, v0, v1, v2);
 #endif // NBL_NEE_LEAF_MODE == 0
 
+      // radiance.xyz | hitKey in one 16 B tap, loaded after the sampler build so it isn't live through it
+      const uint32_t4     emitterRec = vk::RawBufferLoad<uint32_t4>(gScene.init.pEmitters + uint64_t(emitterID) * uint64_t(EmitterRecordSize), 16u);
+      const spectral_type emission   = asfloat(emitterRec.xyz);
+      const uint32_t      winnerKey  = emitterRec.w;
+      // built here, not passed in, so NdotV and the V copy aren't live through the sampler build
+      const isotropic_interaction_t interaction = isotropic_interaction_t::create(V, shadingNormal, throughput);
+
       // direction RIS: correlated candidates (__rotate2, marginally uniform), online weighted reservoir.
       static const uint16_t kRISCandidates = uint16_t(NEE_RIS_CANDIDATES);
-      float32_t             dirPick        = randNEE.y; // rescaled within the chosen branch each step to stay uniform
       float32_t3            pickedDir      = float32_t3(0, 0, 0);
-      float32_t             tWinner        = 0.f;
-      float32_t             sumW           = 0.f;
       bool                  found          = false;
       value_weight_type     winnerEv;
+      float32_t             risWeight      = 0.f; // K=1: 1/dirPdf straight from the draw; K>1: (sumW/K)/tWinner after the loop
+#if NEE_RIS_CANDIDATES > 1
+      float32_t dirPick = randNEE.y; // rescaled within the chosen branch each step to stay uniform
+      float32_t tWinner = 0.f;
+      float32_t sumW    = 0.f;
+#endif // NEE_RIS_CANDIDATES > 1
 #if NBL_MIS_MODE != NBL_MIS_MODE_NEE_ONLY
       float32_t dirWeightWinner = 0.f; // winner's directional MIS weight (backwardWeight for OBB/projected, pdf for uniform/Arvo)
 #endif // NBL_MIS_MODE != NEE_ONLY
@@ -593,13 +570,12 @@ struct NextEventEstimator
          float32_t  dirPdf = 0.f;
 #if NBL_NEE_LEAF_MODE == 0
          pyramid_t::cache_type pyrCache;
-         const float32_t3      dirLocal = pyramid.generate(u, pyrCache);
-         dir                            = frameT * dirLocal.x + frameB * dirLocal.y + shadingNormal * dirLocal.z;
-         dirPdf                         = pyramid.forwardPdf(u, pyrCache); // <= 0 => degenerate/clipped sample (zero-weight proposal)
+         dir    = pyramid.generate(u, pyrCache);
+         dirPdf = pyramid.forwardPdf(u, pyrCache); // <= 0 => degenerate/clipped sample (zero-weight proposal)
 #if NBL_NEE_STATS
          if (!(dirPdf > 0.f))
          {
-            if (dirLocal.z <= 0.f)
+            if (hlsl::dot(dir, shadingNormal) <= 0.f)
                statsZero++;
             else
                statsDegen++;
@@ -607,7 +583,7 @@ struct NextEventEstimator
 #endif // NBL_NEE_STATS
 #if NBL_MIS_MODE != NBL_MIS_MODE_NEE_ONLY
          // backwardWeight HERE (pyramid's last use) so the pyramid dies before the material eval below.
-         const float32_t dirWeight = (dirPdf > 0.f) ? hlsl::max(pyramid.backwardWeight(dirLocal) - 0.5f / numbers::pi<float32_t>, 0.f) : 0.f;
+         const float32_t dirWeight = (dirPdf > 0.f) ? hlsl::max(pyramid.backwardWeight(dir) - 0.5f / numbers::pi<float32_t>, 0.f) : 0.f;
 #endif // NBL_MIS_MODE != NEE_ONLY
 #else // NBL_NEE_LEAF_MODE != 0
          float32_t dirWeight = 0.f;
@@ -637,6 +613,7 @@ struct NextEventEstimator
 #endif // NBL_NEE_LEAF_MODE == 0
 #endif // NBL_NEE_STATS
          const float32_t w = (dirPdf > 0.f) ? (target / dirPdf) : 0.f;
+#if NEE_RIS_CANDIDATES > 1
          if (w > 0.f)
          {
             sumW += w;
@@ -655,6 +632,18 @@ struct NextEventEstimator
             else
                dirPick = (dirPick - pReplace) / (1.f - pReplace);
          }
+#else // NEE_RIS_CANDIDATES == 1
+         if (w > 0.f)
+         {
+            pickedDir = dir;
+            winnerEv  = ev;
+#if NBL_MIS_MODE != NBL_MIS_MODE_NEE_ONLY
+            dirWeightWinner = dirWeight;
+#endif // NBL_MIS_MODE != NEE_ONLY
+            found     = true;
+            risWeight = 1.f / dirPdf;
+         }
+#endif // NEE_RIS_CANDIDATES > 1
       }
 #if NBL_NEE_STATS
       neeStatsAdd(NeeStatsDirDraws, uint32_t(kRISCandidates));
@@ -673,8 +662,9 @@ struct NextEventEstimator
       }
 
 #if NBL_MIS_MODE != NBL_MIS_MODE_NEE_ONLY
-      const float32_t pNee = winner.pProposal * dirWeightWinner;
+      const float32_t pNee = winnerProposal * dirWeightWinner;
 #endif // NBL_MIS_MODE != NEE_ONLY
+      const float32_t3 shadowOrigin = hitPos + shadingNormal * shadowOffset;
 
 #if NBL_NEE_SINGLE_RAY
 #if NBL_NEE_STATS
@@ -686,10 +676,10 @@ struct NextEventEstimator
          while (nbl::hlsl::spirv::rayQueryProceedKHR(q)) {}
          if (nbl::hlsl::spirv::rayQueryGetIntersectionTypeKHR(q, 1u) == 0u)
             return res; // hit nothing
-         const uint32_t hitEmitterID = resolveHitEmitterID(nbl::hlsl::spirv::rayQueryGetIntersectionInstanceCustomIndexKHR(q, 1u),
+         const uint32_t hitKey = resolveHitKey(nbl::hlsl::spirv::rayQueryGetIntersectionInstanceCustomIndexKHR(q, 1u),
             nbl::hlsl::spirv::rayQueryGetIntersectionGeometryIndexKHR(q, 1u),
             nbl::hlsl::spirv::rayQueryGetIntersectionPrimitiveIndexKHR(q, 1u));
-         if (hitEmitterID != emitterID)
+         if (hitKey != winnerKey)
             return res; // a nearer occluder, or a different emitter, is in front
       }
 #else // NBL_NEE_SINGLE_RAY
@@ -710,18 +700,12 @@ struct NextEventEstimator
       neeStatsAdd(NeeStatsTraced, 1u); // passed rejection -> a visibility ray is cast
 #endif // NBL_NEE_STATS
 
-      // ray 2 runs non-opaque so the picked emitter is skipped by identity: no tMax backoff, no self-occlusion.
+      // ray 2: opaque, tMax backed off from the lit point by the self-intersection epsilon, so traversal ends inside the RT core
       {
+         const float32_t               shadowTMax = shadowDist;// - hlsl::max(shadowOffset, shadowDist * hlsl::exp2(-16.f));
          nbl::hlsl::spirv::RayQueryKHR q2;
-         nbl::hlsl::spirv::rayQueryInitializeKHR(q2, gTLASes[0], spv::RayFlagsNoOpaqueKHRMask | spv::RayFlagsTerminateOnFirstHitKHRMask, 0xffu, shadowOrigin, 0.f, pickedDir, shadowDist);
-         while (nbl::hlsl::spirv::rayQueryProceedKHR(q2))
-         {
-            const uint32_t cEmitter = resolveHitEmitterID(nbl::hlsl::spirv::rayQueryGetIntersectionInstanceCustomIndexKHR(q2, 0u),
-               nbl::hlsl::spirv::rayQueryGetIntersectionGeometryIndexKHR(q2, 0u),
-               nbl::hlsl::spirv::rayQueryGetIntersectionPrimitiveIndexKHR(q2, 0u));
-            if (cEmitter != emitterID)
-               nbl::hlsl::spirv::rayQueryConfirmIntersectionKHR(q2); // genuine occluder -> commit & terminate
-         }
+         nbl::hlsl::spirv::rayQueryInitializeKHR(q2, gTLASes[0], spv::RayFlagsOpaqueKHRMask | spv::RayFlagsTerminateOnFirstHitKHRMask, 0xffu, shadowOrigin, 0.f, pickedDir, shadowTMax);
+         while (nbl::hlsl::spirv::rayQueryProceedKHR(q2)) {}
          if (nbl::hlsl::spirv::rayQueryGetIntersectionTypeKHR(q2, 1u) != 0u)
             return res; // occluded
       }
@@ -729,7 +713,9 @@ struct NextEventEstimator
 
       const value_weight_type bxdfEval = winnerEv; // winner's RIS-loop eval reused (keeps interaction off the ray frame)
 
-      const float32_t risWeight = (sumW / float32_t(kRISCandidates)) / tWinner;
+#if NEE_RIS_CANDIDATES > 1
+      risWeight = (sumW / float32_t(kRISCandidates)) / tWinner;
+#endif // NEE_RIS_CANDIDATES > 1
 #if NBL_MIS_MODE == NBL_MIS_MODE_NEE_ONLY
       const float32_t misWeight = 1.0f;
 #else // NBL_MIS_MODE != NBL_MIS_MODE_NEE_ONLY

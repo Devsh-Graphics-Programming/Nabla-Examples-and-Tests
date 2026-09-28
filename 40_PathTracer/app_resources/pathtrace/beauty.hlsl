@@ -190,15 +190,15 @@ void raygen()
    SArbitraryOutputValues aovs;
    aovs.clear();
 
-   // some weird DXC and SPIR-V Tools Bug, lets try to move stuff out to temporaries and only use those
-   decltype(samplingInfo.randgen) randgen          = samplingInfo.randgen;
-   const bool                     keepAccumulating = samplingInfo.firstSample;
+   const bool keepAccumulating = samplingInfo.firstSample;
    // Held live across the path-tracing loop; summed per sample, written to gBeauty as an fp32 mean
    // after the loop (alongside the per-sample RWMC cascade splat).
    float32_t3 referenceFrameSum = float32_t3(0, 0, 0);
    NBL_HLSL_LOOP
    for (uint32_t sampleIndex = samplingInfo.firstSample; sampleIndex != endSample;)
    {
+      // per-sample restart: the scramble state advances per fetch, carrying it over de-stratifies the Sobol dims
+      decltype(samplingInfo.randgen) randgen = samplingInfo.randgen;
       // For RWMC to work, every sample must be splatted individually
       spectral_t color;
 #if NBL_NEE_DEFERRED
@@ -241,10 +241,12 @@ void raygen()
          [[vk::ext_storage_class(spv::StorageClassRayPayloadKHR)]] SAnyHitRetval payload;
          const float                                                             tMax = pc.sensorDynamics.tMax;
          payload.init(randVec.z, tMax);
-         spirv::hitObjectTraceRayEXT(hitObject, gTLASes[0], spv::RayFlagsMaskNone, 0xff, ESBTO_PATH, 0u, 0u, ray.origin, primary.tMin, ray.direction.getDirection(), tMax, payload);
+         spirv::hitObjectTraceRayEXT(hitObject, gTLASes[0], spv::RayFlagsOpaqueKHRMask, 0xff, ESBTO_PATH, 0u, 0u, ray.origin, primary.tMin, ray.direction.getDirection(), tMax, payload);
          // TODO: do something with the payload's reported transparency
       }
-      // TODO: Possible SER point
+#if NBL_PT_SER_REORDER
+      spirv::reorderThreadWithHitObjectEXT<uint32_t>(hitObject, 0u, 0u);
+#endif
       const bool       primaryMissed = spirv::hitObjectIsMissEXT(hitObject);
       const float32_t3 primaryRayDir = spirv::hitObjectGetWorldRayDirectionEXT(hitObject);
 
@@ -308,7 +310,7 @@ void raygen()
                const uint32_t emitterIdx = resolveHitEmitterID(spirv::hitObjectGetInstanceCustomIndexEXT(hitObject), spirv::hitObjectGetGeometryIndexEXT(hitObject), closestInfo.primitiveID);
 #if NBL_NEE_DEFERRED && NBL_MIS_MODE == NBL_MIS_MODE_BOTH
                // deweight-needing hits go to the fused pass; backwardNEE here compiles without deweight
-               if (emitterIdx < nbl::this_example::NonEmitterCustomIndex && otherTechniqueHeuristic > nbl::this_example::NextEventEstimator::MISWeightThreshold && gScene.init.pEmitterToLeafIdx != 0)
+               if (emitterIdx < nbl::this_example::NonEmitterCustomIndex && otherTechniqueHeuristic > nbl::this_example::NextEventEstimator::MISWeightThreshold)
                   slotEmitterFlags = emitterIdx | nbl::this_example::NeeDeferredFlagEmission;
                else
                   color += neeEstimator.backwardNEE(emitterIdx, closestInfo.hitPos, otherTechniqueHeuristic, throughput);
@@ -361,7 +363,7 @@ void raygen()
             // perform NEE
             const float32_t neeProb = 1.f;
 #if NBL_MIS_MODE != NBL_MIS_MODE_BXDF_ONLY
-            if (gScene.init.pLightTreeLeaves != 0 && gScene.init.pEmitters != 0)
+            if (gScene.init.pEmitters != 0)
             {
 #if NBL_NEE_DEFERRED
                // The fused pass replays the whole random stream from gScrambleKey, valid at 1 spp per
@@ -378,7 +380,7 @@ void raygen()
                const float32_t3 randNEE2 = randgen(sequenceProtoDim + uint16_t(2), sampleIndex);
 
                // forwardNEE owns both shadow rays and only returns a valid sample once the emitter is visible.
-               const nbl::this_example::NextEventEstimator::SForwardSample nee = neeEstimator.forwardNEE(closestInfo.hitPos, newRayOrigin, shadingNormal, interaction, diffuse, throughput, randNEE, randNEE2);
+               const nbl::this_example::NextEventEstimator::SForwardSample nee = neeEstimator.forwardNEE(closestInfo.hitPos, offsetMagnitude, shadingNormal, V, diffuse, throughput, randNEE, randNEE2);
                if (nee.valid)
                   color += nee.contribution * albedo;
 #endif // NBL_NEE_DEFERRED
@@ -419,7 +421,10 @@ void raygen()
                   const float32_t3                                                        L = bxdfSample.getL().getDirection();
                   [[vk::ext_storage_class(spv::StorageClassRayPayloadKHR)]] SAnyHitRetval contPayload;
                   contPayload.init(randBRDF.z);
-                  spirv::hitObjectTraceRayEXT(hitObject, gTLASes[0], spv::RayFlagsMaskNone, 0xff, ESBTO_PATH, 0u, 0u, newRayOrigin, tMin, L, hlsl::numeric_limits<float32_t>::max, contPayload);
+                  spirv::hitObjectTraceRayEXT(hitObject, gTLASes[0], spv::RayFlagsOpaqueKHRMask, 0xff, ESBTO_PATH, 0u, 0u, newRayOrigin, tMin, L, hlsl::numeric_limits<float32_t>::max, contPayload);
+#if NBL_PT_SER_REORDER
+                  spirv::reorderThreadWithHitObjectEXT<uint32_t>(hitObject, 0u, 0u);
+#endif
                   const bool       bounceMissed = spirv::hitObjectIsMissEXT(hitObject);
                   const float32_t3 bounceRayDir = spirv::hitObjectGetWorldRayDirectionEXT(hitObject);
                   // TODO: do something with the payload's reported transparency

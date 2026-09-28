@@ -418,6 +418,12 @@ set(JSON "
 ]
 ")
 
+# The NSC depfile misses header edits, so every rule depends on all reachable shader sources.
+file(GLOB_RECURSE NBL_SHADER_DEPENDS CONFIGURE_DEPENDS
+  "${CMAKE_CURRENT_SOURCE_DIR}/app_resources/*.hlsl"
+  "${NBL_ROOT_PATH}/include/nbl/builtin/hlsl/*.hlsl"
+)
+
 NBL_CREATE_NSC_COMPILE_RULES(
   TARGET ${EXECUTABLE_NAME}SPIRV
   LINK_TO ${EXECUTABLE_NAME}
@@ -427,6 +433,7 @@ NBL_CREATE_NSC_COMPILE_RULES(
   OUTPUT_VAR KEYS
   INCLUDE nbl/this_example/builtin/build/spirv/keys.hpp
   NAMESPACE nbl::this_example::builtin::build
+  DEPENDS ${NBL_SHADER_DEPENDS}
   INPUTS ${JSON}
 )
 

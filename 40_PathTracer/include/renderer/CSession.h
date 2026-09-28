@@ -95,7 +95,7 @@ class CSession final : public core::IReferenceCounted
 
 		static BeautyVariant beautyVariantFor(const MisMode misMode, const bool useAlias, const LightSampler sampler = LightSampler::OBB, const bool deferredNEE = false)
 		{
-			// Wavefront NEE: BxDF-only has no NEE so it falls through to the inline variant.
+			// Deferred NEE: BxDF-only has no NEE so it falls through to the inline variant.
 			if (deferredNEE && misMode == MisMode::NEEOnly)
 				return (sampler == LightSampler::OBB) ? BeautyVariant::NEEOnly_Deferred : BeautyVariant::TriNEEOnly_Deferred;
 			if (deferredNEE && misMode == MisMode::Both)

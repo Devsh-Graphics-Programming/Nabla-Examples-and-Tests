@@ -15,10 +15,11 @@ namespace this_example
 
 NBL_CONSTEXPR_STATIC_INLINE uint32_t NonEmitterCustomIndex = 0xFFFFFFu;
 
+// One record per emitter in leaf-array order; hitKey is what resolveHitKey() yields for a hit on it.
 struct SEmitterGPU
 {
    hlsl::float32_t3 radiance;
-   uint32_t         leafHeap;
+   uint32_t         hitKey;
    hlsl::float32_t3 bboxMin;
    hlsl::float32_t3 bboxMax;
    hlsl::float32_t2 _pad;
@@ -83,32 +84,31 @@ struct BDALightTreeNodeAccessor
    }
 };
 
-// BDA accessor satisfying StochasticLightcutTreeSampler's LeafAccessor concept.
-// Loads one 32 B leaf record into the library's LightcutTreeLeaf<float>.
+// LeafAccessor for StochasticLightcutTreeSampler over the emitter table: leaf-array index == emitter ID,
+// bbox from the 48 B SEmitterGPU record. Padding leaves (>= numEmitters) decode to no emitter.
 struct BDALightTreeLeafAccessor
 {
    uint64_t base;
+   uint32_t numEmitters;
 
-   static BDALightTreeLeafAccessor create(uint64_t _base)
+   static BDALightTreeLeafAccessor create(uint64_t _base, uint32_t _numEmitters)
    {
       BDALightTreeLeafAccessor r;
-      r.base = _base;
+      r.base        = _base;
+      r.numEmitters = _numEmitters;
       return r;
    }
 
    template<typename V, typename I> void get(I leafArrayIdx, NBL_REF_ARG(V) val) NBL_CONST_MEMBER_FUNC
    {
-      const uint64_t addr = base + uint64_t(leafArrayIdx) * 32ull;
-      // Two coalesced uint4 taps + the library unpack (shared decode contract).
-      //   lo (uint4 @ 0):  bboxMin.xyz | bboxMax.x
-      //   hi (uint4 @ 16): bboxMax.yz  | emitterID | _pad
-      const uint32_t4 lo = vk::RawBufferLoad<uint32_t4>(addr + 0ull, 16u);
-      const uint32_t4 hi = vk::RawBufferLoad<uint32_t4>(addr + 16ull, 16u);
-      nbl::hlsl::sampling::LightcutTreePackedLeaf packed;
-      packed.bboxMin   = asfloat(lo.xyz);
-      packed.bboxMax   = hlsl::float32_t3(asfloat(lo.w), asfloat(hi.x), asfloat(hi.y));
-      packed.emitterID = hi.z;
-      val              = nbl::hlsl::sampling::lightcutTreeUnpackLeaf<hlsl::float32_t>(packed);
+      const bool     real = uint32_t(leafArrayIdx) < numEmitters;
+      const uint64_t addr = base + uint64_t(real ? uint32_t(leafArrayIdx) : 0u) * uint64_t(EmitterRecordSize);
+      // b1 = bboxMin.xyz | bboxMax.x, b2 = bboxMax.yz | pad | pad (48 B stride keeps both 16-aligned).
+      const uint32_t4 b1 = vk::RawBufferLoad<uint32_t4>(addr + 16ull, 16u);
+      const uint32_t4 b2 = vk::RawBufferLoad<uint32_t4>(addr + 32ull, 16u);
+      val.bboxMin   = asfloat(b1.xyz);
+      val.bboxMax   = hlsl::float32_t3(asfloat(b1.w), asfloat(b2.x), asfloat(b2.y));
+      val.emitterID = real ? uint32_t(leafArrayIdx) : ~0u;
    }
 };
 

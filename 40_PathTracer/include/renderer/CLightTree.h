@@ -43,25 +43,23 @@ struct SLightTreeNode
    uint32_t                          emitterID; // valid only for leaves; ~0u for internal and padding
 };
 
-// CWBVH-4 GPU records, aliases of the builtin library's canonical 32 B pack/unpack layout (shared with
-// the GPU decoder + round-trip test). The CPU builder fills them via the library pack helpers.
+// CWBVH-4 GPU record, alias of the builtin library's canonical 32 B pack/unpack layout (shared with
+// the GPU decoder + round-trip test). The CPU builder fills it via the library pack helpers.
 using SLightTreeWideNode = nbl::hlsl::sampling::LightcutTreePackedWideNode;
-using SLightTreeLeaf_GPU = nbl::hlsl::sampling::LightcutTreePackedLeaf;
 static_assert(sizeof(SLightTreeWideNode) == 32, "Wide-node layout must be 32 B");
-static_assert(sizeof(SLightTreeLeaf_GPU) == 32, "Leaf record must be 32 B");
 
 struct SLightTree
 {
    // CPU scratch tree (float bbox/power) used during build; the GPU buffers below derive from it.
    nbl::core::vector<SLightTreeNode> nodes;
 
-   // GPU buffers (in CPU memory until uploaded).
+   // GPU buffers (in CPU memory until uploaded). No leaf array: leaf-array index == emitterID, so the
+   // descent lands on the emitter record directly.
    nbl::core::vector<SLightTreeWideNode> wideNodes; // (numLeavesPadded - 1) / 3 entries; empty for single-leaf tree
-   nbl::core::vector<SLightTreeLeaf_GPU> leaves; // numLeavesPadded entries (incl. padding sentinels)
 
    nbl::core::vector<uint32_t> aliasEntries; // packA<Log2N>-packed words, size = aliasTableSize
    nbl::core::vector<float>    aliasPdf; // per-bin pdf, size = aliasTableSize
-   uint32_t                    aliasTableSize = 0; // may be userN or userN+1 (PoT-dodge from AliasTableBuilder)
+   uint32_t                    aliasTableSize = 0; // == emitter count
 
    // Per-internal-node power-weighted alias tables (one per wide-node W) over the leaves in W's
    // subtree, for the descent's early-stop: when per-level child weights stop discriminating, draw one
@@ -73,9 +71,9 @@ struct SLightTree
    nbl::core::vector<uint32_t> subtreeAliasEntries; // size = subtreeAliasOffsets.back()
    nbl::core::vector<float>    subtreeAliasPdfs; // size = subtreeAliasOffsets.back()
 
-   // emitterToLeafIdx[emitterID] = heap index of that emitter's leaf in `nodes`.
-   // Used by the backward pdf walk; the leaf-array position is `heapIdx - firstLeafIndex`.
-   nbl::core::vector<uint32_t> emitterToLeafIdx;
+   // emitterRemap[selection index] = emitterID (= leaf-array position after the Morton sort). PerTriangle
+   // uploads it as pTriToEmitter, since a hit's triangle index is still in selection order.
+   nbl::core::vector<uint32_t> emitterRemap;
    // Per-emitter quantization quality: max-axis ratio of quantized / precise leaf extent (1.0 = exact,
    // >1.0 = the inflated box the descent's weight evaluator sees). Indexed by emitterID.
    nbl::core::vector<float> quantQuality;
@@ -84,13 +82,14 @@ struct SLightTree
    uint32_t                 firstLeafIndex  = 0;
 };
 
-// `mode` selects the alias-index width and skips the global power alias table for PerTriangle, which
-// selects by tree descent. Asserts loudly if the leaf count overflows the chosen width.
-SLightTree buildLightTreeCPU(std::span<const SLightTreeLeaf> leaves, ELightLeafMode mode = ELightLeafMode::PerInstanceOBB);
+// Rewrites each leaf's emitterID to its Morton-sorted leaf-array position (input IDs must be 0..N-1 in
+// order) and returns the old->new map in emitterRemap. `mode` selects the alias-index width; asserts
+// loudly if the leaf count overflows it.
+SLightTree buildLightTreeCPU(std::span<SLightTreeLeaf> leaves, ELightLeafMode mode = ELightLeafMode::PerInstanceOBB);
 
 // CPU-side per-emitter backward NEE pdf at a fixed probe (point + normal), mirroring
 // StochasticLightcutTreeSampler::backwardPdf over `tree.nodes` so the debug viz matches the shader
-// without a per-pixel descent. `out` size >= tree.emitterToLeafIdx.size(); out[emitterID] = that
+// without a per-pixel descent. `out` size >= tree.numLeavesActual; out[emitterID] = that
 // emitter's backward pdf.
 void computePerEmitterBackwardPdfCPU(const SLightTree& tree, const nbl::hlsl::float32_t3& probePoint, const nbl::hlsl::float32_t3& probeNormal, std::span<float> out);
 
@@ -142,8 +141,9 @@ struct SEmitterInstanceRef
 // so the shader resolves a hit's emitter via this map rather than treating instanceCustomIndex as it.
 // If emitterDensity > 0 and at least one candidate is eligible but the roll picks none, one is forced.
 // In PerTriangle mode each selected instance is exploded into one leaf per emissive triangle, and
-// outInstancedGeometryToEmitter holds the BASE emitter ID of each geometry's first triangle, so a hit
-// resolves its emitter as base + PrimitiveIndex().
+// outInstancedGeometryToEmitter holds the selection-order BASE index of each geometry's first triangle,
+// so a hit's key is base + PrimitiveIndex(); pTriToEmitter maps that to the emitter ID once
+// buildLightTreeCPU has renumbered the leaves (OBB mode rewrites this map's values in place instead).
 nbl::core::vector<SLightTreeLeaf> selectRandInstancesAsEmitterLeaves(std::span<nbl::asset::ICPUTopLevelAccelerationStructure::PolymorphicInstance> instances,
    const blas_cache_t&                                                                                                              blasCache,
    float                                                                                                                            emitterDensity,

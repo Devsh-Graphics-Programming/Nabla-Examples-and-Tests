@@ -75,13 +75,10 @@ struct SBeautyPushConstants
 #else
 	S16BitData __16BitData;
 #endif
-	// Deferred (wavefront) NEE request buffer BDA; 0 unless an NBL_NEE_DEFERRED raygen variant + the
-	// NEE/resolve compute passes are bound. Shared by all three so the slot addressing agrees.
+	// Deferred NEE request buffer BDA; 0 unless an NBL_NEE_DEFERRED raygen variant + the NEE/resolve
+	// compute pass are bound. Shared by both so the slot addressing agrees.
 	uint64_t pNeeRequests;
-	// per-bounce wavefront mode only, re-pushed per dispatch
-	uint32_t wavefrontBounce : MAX_PATH_DEPTH_LOG2;
-	uint32_t wavefrontWave : 24;
-	// batched deferral only, re-pushed per horizontal band; raygen launches (W, tileHeight) so
+	// re-pushed per horizontal band; raygen launches (W, tileHeight) so
 	// LaunchIdKHR/LaunchSizeKHR are band-local, the pixel coord adds tileOffsetY
 	uint32_t tileOffsetY : 16;
 	uint32_t tileHeight : 16;

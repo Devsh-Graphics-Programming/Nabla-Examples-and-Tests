@@ -223,7 +223,7 @@ namespace nbl::this_example::gui
 			ImGui::SameLine();
 			ImGui::TextDisabled(m_useAliasNEE ? "(alias table, O(1))" : "(light-tree descent, O(log N))");
 
-			if (ImGui::Combo("NEE architecture", &m_deferredNEE, "Inline megakernel\0Deferred (batched)\0Wavefront (per-bounce)\0") && m_callbacks.onDeferredNEEChanged)
+			if (ImGui::Combo("NEE architecture", &m_deferredNEE, "Inline megakernel\0Deferred (batched)\0") && m_callbacks.onDeferredNEEChanged)
 				m_callbacks.onDeferredNEEChanged(m_deferredNEE);
 
 			if (m_deferredNEE == 1)

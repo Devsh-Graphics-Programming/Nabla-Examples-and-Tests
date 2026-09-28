@@ -73,20 +73,16 @@ void neeDeferredMain(uint32_t3 groupId: SV_GroupID, uint32_t3 groupThreadId: SV_
       const float32_t2  pixelSizeNDC = promote<float32_t2>(2.f) / float32_t2(renderSize);
       const float32_t2  NDC          = float32_t2(coord.xy) * pixelSizeNDC - promote<float32_t2>(1.f);
       const SPrimaryRay primary      = genPrimaryRay(pc.sensorDynamics, pixelSizeNDC, NDC, float16_t2(randVec.xy), 1u);
-      float32_t3        prevRayOrigin = primary.ray.origin;
+      const float32_t3  primAbs          = abs(primary.ray.origin);
+      float32_t         prevOriginMaxAbs = hlsl::max(primAbs.x, hlsl::max(primAbs.y, primAbs.z));
 
       // bounces in order so the same-emitter MIS cache and prev-shading vertex flow like inline
       NEE nee = NEE::create();
-      SNeeDeferredBounce bounce;
-      if (bounceCount != 0u)
-         bounce = records.loadBounce(1u);
       NBL_HLSL_LOOP
       for (uint32_t d = 1u; d <= bounceCount; d++)
       {
-         // software pipeline: the next bounce's taps load while this bounce's estimator + shadow ray run
-         SNeeDeferredBounce nextBounce;
-         if (d < bounceCount)
-            nextBounce = records.loadBounce(d + 1u);
+         // no next-bounce prefetch: 11 registers live across the estimator cost more than the exposed load
+         const SNeeDeferredBounce bounce = records.loadBounce(d);
 
 #if NBL_MIS_MODE == NBL_MIS_MODE_BOTH
          if (bounce.flags & NeeDeferredFlagEmission)
@@ -102,24 +98,22 @@ void neeDeferredMain(uint32_t3 groupId: SV_GroupID, uint32_t3 groupThreadId: SV_
             const float32_t3 randNEE          = randgen(sequenceProtoDim + uint16_t(1), sampleIndex);
             const float32_t3 randNEE2         = randgen(sequenceProtoDim + uint16_t(2), sampleIndex);
 
-            // raygen's newRayOrigin recomputed exactly (relies on shadingNormal == geometricNormal);
-            // the incoming origin chain: primary origin, then each bounce's shadow origin
-            const float32_t3 originMagnitude = max(abs(bounce.hitPos), abs(prevRayOrigin));
-            const float32_t  offsetMagnitude = hlsl::max(hlsl::max(hlsl::exp2(8.f), originMagnitude.x), hlsl::max(originMagnitude.y, originMagnitude.z)) * hlsl::exp2(-20.f);
-            const float32_t3 shadowOrigin    = bounce.hitPos + bounce.shadingNormal * offsetMagnitude;
-            prevRayOrigin                    = shadowOrigin;
+            // raygen's newRayOrigin offset recomputed exactly (relies on shadingNormal == geometricNormal);
+            // only the largest |component| of the previous ray origin feeds it, so that's all we carry
+            const float32_t3 hitAbs          = abs(bounce.hitPos);
+            const float32_t  offsetMagnitude = hlsl::max(hlsl::max(hlsl::exp2(8.f), prevOriginMaxAbs), hlsl::max(hitAbs.x, hlsl::max(hitAbs.y, hitAbs.z))) * hlsl::exp2(-20.f);
+            const float32_t3 nextOriginAbs   = abs(bounce.hitPos + bounce.shadingNormal * offsetMagnitude);
+            prevOriginMaxAbs                 = hlsl::max(nextOriginAbs.x, hlsl::max(nextOriginAbs.y, nextOriginAbs.z));
 
             NEE::ray_dir_info_t V;
             V.setDirection(bounce.shadingNormal);
-            NEE::isotropic_interaction_t interaction = NEE::isotropic_interaction_t::create(V, bounce.shadingNormal, bounce.throughput);
 
             // forwardNEE owns both shadow rays and only returns a valid sample when the emitter is visible.
-            const NEE::SForwardSample fwd = nee.forwardNEE(bounce.hitPos, shadowOrigin, bounce.shadingNormal, interaction, diffuse, bounce.throughput, randNEE, randNEE2);
+            const NEE::SForwardSample fwd = nee.forwardNEE(bounce.hitPos, offsetMagnitude, bounce.shadingNormal, V, diffuse, bounce.throughput, randNEE, randNEE2);
             if (fwd.valid)
                color += fwd.contribution * surfaceAlbedo();
             nee.recordShadingVertex(bounce.hitPos, bounce.shadingNormal);
          }
-         bounce = nextBounce;
       }
 
       if (samplesTaken == 0u)

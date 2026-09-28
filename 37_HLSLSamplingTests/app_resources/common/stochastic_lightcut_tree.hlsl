@@ -48,9 +48,14 @@ struct LightcutTestLeafAccessor
    template<typename V, typename I>
    void get(I i, NBL_REF_ARG(V) val) NBL_CONST_MEMBER_FUNC
    {
-      val.bboxMin   = data[i].bboxMin;
-      val.bboxMax   = data[i].bboxMax;
-      val.emitterID = data[i].emitterID;
+      NBL_UNROLL
+      for (uint32_t l = 0u; l < LightcutTestNumLeaves; ++l)
+         if (I(l) == i)
+         {
+            val.bboxMin   = data[l].bboxMin;
+            val.bboxMax   = data[l].bboxMax;
+            val.emitterID = data[l].emitterID;
+         }
    }
 
    value_type data[LightcutTestNumLeaves];
@@ -72,14 +77,19 @@ struct LightcutTestNodeArrayAccessor
    template<typename V, typename I>
    void get(I i, NBL_REF_ARG(V) val) NBL_CONST_MEMBER_FUNC
    {
-      val.childLeafMask = data[i].childLeafMask;
       NBL_UNROLL
-      for (uint32_t s = 0u; s < 4u; ++s)
-      {
-         val.children[s].bboxMin = data[i].children[s].bboxMin;
-         val.children[s].bboxMax = data[i].children[s].bboxMax;
-         val.children[s].power   = data[i].children[s].power;
-      }
+      for (uint32_t n = 0u; n < LightcutTestNumWideNodesDepth2; ++n)
+         if (I(n) == i)
+         {
+            val.childLeafMask = data[n].childLeafMask;
+            NBL_UNROLL
+            for (uint32_t s = 0u; s < 4u; ++s)
+            {
+               val.children[s].bboxMin = data[n].children[s].bboxMin;
+               val.children[s].bboxMax = data[n].children[s].bboxMax;
+               val.children[s].power   = data[n].children[s].power;
+            }
+         }
    }
 
    value_type data[LightcutTestNumWideNodesDepth2];
@@ -92,9 +102,14 @@ struct LightcutTestLeafAccessorDepth2
    template<typename V, typename I>
    void get(I i, NBL_REF_ARG(V) val) NBL_CONST_MEMBER_FUNC
    {
-      val.bboxMin   = data[i].bboxMin;
-      val.bboxMax   = data[i].bboxMax;
-      val.emitterID = data[i].emitterID;
+      NBL_UNROLL
+      for (uint32_t l = 0u; l < LightcutTestNumLeavesDepth2; ++l)
+         if (I(l) == i)
+         {
+            val.bboxMin   = data[l].bboxMin;
+            val.bboxMax   = data[l].bboxMax;
+            val.emitterID = data[l].emitterID;
+         }
    }
 
    value_type data[LightcutTestNumLeavesDepth2];

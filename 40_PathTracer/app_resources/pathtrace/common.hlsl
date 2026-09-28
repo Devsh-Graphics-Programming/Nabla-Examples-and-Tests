@@ -270,7 +270,7 @@ struct SPrimaryRay
     float32_t tMin;
 };
 
-// launchSizeZ parameter instead of spirv::LaunchSizeKHR so compute (wavefront init) can call it too
+// launchSizeZ parameter instead of spirv::LaunchSizeKHR so compute (deferred NEE) can call it too
 SPrimaryRay genPrimaryRay(const SSensorDynamics sensor, const float32_t2 pixelSizeNDC, const float32_t2 ndc, const float16_t2 xi, const uint32_t launchSizeZ)
 {
     using namespace nbl::hlsl;
