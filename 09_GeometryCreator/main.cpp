@@ -74,7 +74,7 @@ class GeometryCreatorApp final : public MonoWindowApplication, public BuiltinRes
 			{
 				core::vectorSIMDf cameraPosition(-5.81655884, 2.58630896, -4.23974705);
 				core::vectorSIMDf cameraTarget(-0.349590302, -0.213266611, 0.317821503);
-				float32_t4x4 projectionMatrix = hlsl::math::thin_lens::lhPerspectiveFovMatrix<float>(core::radians(60.0f), float(m_initialResolution.x) / m_initialResolution.y, 0.1f, 10000.0f);
+				float32_t4x4 projectionMatrix = hlsl::math::thin_lens::lhPerspectiveFovMatrix<float>(core::radians(60.0f), float(m_initialResolution.x) / m_initialResolution.y, 10000.0f, 0.1f);
 				camera = Camera(cameraPosition, cameraTarget, projectionMatrix, 1.069f, 0.4f);
 			}
 
@@ -103,8 +103,6 @@ class GeometryCreatorApp final : public MonoWindowApplication, public BuiltinRes
 
 			asset::SViewport viewport;
 			{
-				viewport.minDepth = 1.f;
-				viewport.maxDepth = 0.f;
 				viewport.x = 0u;
 				viewport.y = 0u;
 				viewport.width = m_window->getWidth();

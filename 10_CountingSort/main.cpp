@@ -138,7 +138,7 @@ class CountingSortApp final : public application_templates::MonoDeviceApplicatio
 					auto reqs = buffer->getMemoryReqs();
 					reqs.memoryTypeBits &= m_physicalDevice->getHostVisibleMemoryTypeBits();
 
-					*allocation = m_device->allocate(reqs, buffer.get(), IDeviceMemoryAllocation::EMAF_DEVICE_ADDRESS_BIT);
+					*allocation = m_device->allocate(reqs, { buffer.get(), IDeviceMemoryAllocation::EMAF_DEVICE_ADDRESS_BIT });
 					if (!allocation->isValid())
 						logFail("Failed to allocate Device Memory compatible with our GPU Buffer!\n");
 

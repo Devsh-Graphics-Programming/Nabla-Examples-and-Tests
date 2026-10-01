@@ -205,7 +205,7 @@ class HelloComputeApp final : public nbl::application_templates::MonoSystemMonoL
 					// And this one which is a utility which tries to allocate from every type that matches your requirements in some order of preference.
 					// The other of preference (iteration over compatible types) can be controlled by the method's template parameter,
 					// the default is from lowest index to highest, but skipping over incompatible types.
-					allocation = device->allocate(reqs,outputBuff.get(),nbl::video::IDeviceMemoryAllocation::EMAF_NONE);
+					allocation = device->allocate(reqs, { outputBuff.get(), nbl::video::IDeviceMemoryAllocation::EMAF_NONE });
 					if (!allocation.isValid())
 						return logFail("Failed to allocate Device Memory compatible with our GPU Buffer!\n");
 

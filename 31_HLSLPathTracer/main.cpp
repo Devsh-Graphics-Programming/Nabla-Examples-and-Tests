@@ -624,7 +624,7 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 					auto image = m_device->createImage(std::move(imgInfo));
 					auto imageMemReqs = image->getMemoryReqs();
 					imageMemReqs.memoryTypeBits &= m_device->getPhysicalDevice()->getDeviceLocalMemoryTypeBits();
-					m_device->allocate(imageMemReqs, image.get());
+					m_device->allocate(imageMemReqs, { image.get() });
 
 					return image;
 				};
@@ -1397,8 +1397,6 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 
 			asset::SViewport viewport;
 			{
-				viewport.minDepth = 1.f;
-				viewport.maxDepth = 0.f;
 				viewport.x = 0u;
 				viewport.y = 0u;
 				viewport.width = WindowDimensions.x;

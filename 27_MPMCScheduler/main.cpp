@@ -142,7 +142,7 @@ class MPMCSchedulerApp final : public SimpleWindowedApplication, public BuiltinR
 					.usage = IGPUImage::E_USAGE_FLAGS::EUF_TRANSFER_DST_BIT | IGPUImage::E_USAGE_FLAGS::EUF_TRANSFER_SRC_BIT | IGPUImage::E_USAGE_FLAGS::EUF_STORAGE_BIT
 				}
 			});
-			if (!m_hdr || !m_device->allocate(m_hdr->getMemoryReqs(),m_hdr.get()).isValid())
+			if (!m_hdr || !m_device->allocate(m_hdr->getMemoryReqs(), { m_hdr.get() }).isValid())
 				return logFail("Could not create HDR Image");
 
 			{

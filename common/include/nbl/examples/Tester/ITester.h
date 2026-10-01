@@ -105,7 +105,7 @@ class ITester
          video::IDeviceMemoryBacked::SDeviceMemoryRequirements reqs = inputBuff->getMemoryReqs();
          reqs.memoryTypeBits &= m_physicalDevice->getHostVisibleMemoryTypeBits();
 
-         m_inputBufferAllocation = m_device->allocate(reqs, inputBuff.get(), video::IDeviceMemoryAllocation::EMAF_NONE);
+         m_inputBufferAllocation = m_device->allocate(reqs, { inputBuff.get(), video::IDeviceMemoryAllocation::EMAF_NONE });
          if (!m_inputBufferAllocation.isValid())
             logFail("Failed to allocate Device Memory compatible with our GPU Buffer!\n");
 
@@ -139,7 +139,7 @@ class ITester
          video::IDeviceMemoryBacked::SDeviceMemoryRequirements reqs = outputBuff->getMemoryReqs();
          reqs.memoryTypeBits &= m_physicalDevice->getHostVisibleMemoryTypeBits();
 
-         m_outputBufferAllocation = m_device->allocate(reqs, outputBuff.get(), video::IDeviceMemoryAllocation::EMAF_NONE);
+         m_outputBufferAllocation = m_device->allocate(reqs, { outputBuff.get(), video::IDeviceMemoryAllocation::EMAF_NONE });
          if (!m_outputBufferAllocation.isValid())
             logFail("Failed to allocate Device Memory compatible with our GPU Buffer!\n");
 

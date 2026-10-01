@@ -323,7 +323,7 @@ private:
 			// you can simply constrain the memory requirements by AND-ing the type bits of the host visible memory types
 			reqs.memoryTypeBits &= m_physicalDevice->getHostVisibleMemoryTypeBits() & m_physicalDevice->getDeviceLocalMemoryTypeBits();
 
-			m_histogramBufferAllocation = m_device->allocate(reqs, histogramBuffer.get(), nbl::video::IDeviceMemoryAllocation::E_MEMORY_ALLOCATE_FLAGS::EMAF_NONE);
+			m_histogramBufferAllocation = m_device->allocate(reqs, { histogramBuffer.get(), nbl::video::IDeviceMemoryAllocation::E_MEMORY_ALLOCATE_FLAGS::EMAF_NONE });
 			if (!m_histogramBufferAllocation.isValid())
 				logFailAndTerminate("Failed to allocate Device Memory compatible with our GPU Buffer!\n");
 			assert(histogramBuffer->getBoundMemory().memory == m_histogramBufferAllocation.memory.get());

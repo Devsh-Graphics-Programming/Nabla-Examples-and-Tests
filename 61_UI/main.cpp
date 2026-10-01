@@ -163,6 +163,7 @@ class UISampleApp final : public MonoWindowApplication, public BuiltinResourcesA
 				params.singlePipelineLayout = ext::frustum::CDrawFrustum::createPipelineLayoutFromPCRange(m_device.get(), simplePcRange);
 				params.batchPipelineLayout = ext::frustum::CDrawFrustum::createDefaultPipelineLayout(m_device.get());
 				params.renderpass = smart_refctd_ptr<IGPURenderpass>(m_renderpass);
+				params.depthCompareOp = asset::ECO_GREATER;
 				params.utilities = m_utils;
 				m_drawFrustum = ext::frustum::CDrawFrustum::create(std::move(params));
 				if (!m_drawFrustum)
@@ -512,7 +513,7 @@ class UISampleApp final : public MonoWindowApplication, public BuiltinResourcesA
 					.arrayLayers = 1,
 					.usage = IGPUImage::EUF_RENDER_ATTACHMENT_BIT|IGPUImage::EUF_SAMPLED_BIT
 				}});
-				if (!m_device->allocate(image->getMemoryReqs(),image.get()).isValid())
+				if (!m_device->allocate(image->getMemoryReqs(), { image.get() }).isValid())
 					return nullptr;
 				IGPUImageView::SCreationParams params = {
 					.image = std::move(image),
@@ -610,17 +611,17 @@ class UISampleApp final : public MonoWindowApplication, public BuiltinResourcesA
 
 					if (isPerspective)
 						if(isLH)
-							projection = hlsl::math::thin_lens::lhPerspectiveFovMatrix<float>(core::radians(fov), io.DisplaySize.x / io.DisplaySize.y, zNear, zFar);
+							projection = hlsl::math::thin_lens::lhPerspectiveFovMatrix<float>(core::radians(fov), io.DisplaySize.x / io.DisplaySize.y, zFar, zNear);
 						else
-							projection = hlsl::math::thin_lens::rhPerspectiveFovMatrix<float>(core::radians(fov), io.DisplaySize.x / io.DisplaySize.y, zNear, zFar);
+							projection = hlsl::math::thin_lens::rhPerspectiveFovMatrix<float>(core::radians(fov), io.DisplaySize.x / io.DisplaySize.y, zFar, zNear);
 					else
 					{
 						float viewHeight = viewWidth * io.DisplaySize.y / io.DisplaySize.x;
 
 						if(isLH)
-							projection = hlsl::math::thin_lens::lhPerspectiveFovMatrix<float>(viewWidth, viewHeight, zNear, zFar);
+							projection = hlsl::math::thin_lens::lhPerspectiveFovMatrix<float>(viewWidth, viewHeight, zFar, zNear);
 						else
-							projection = hlsl::math::thin_lens::rhPerspectiveFovMatrix<float>(viewWidth, viewHeight, zNear, zFar);
+							projection = hlsl::math::thin_lens::rhPerspectiveFovMatrix<float>(viewWidth, viewHeight, zFar, zNear);
 					}
 
 					return projection;
@@ -632,16 +633,16 @@ class UISampleApp final : public MonoWindowApplication, public BuiltinResourcesA
 					hlsl::float32_t4x4 projection;
 					if (debugIsPerspective)
 						if (debugIsLH)
-							projection = hlsl::math::thin_lens::lhPerspectiveFovMatrix<float>(core::radians(debugFov), io.DisplaySize.x / io.DisplaySize.y, debugCamZNear, debugCamZFar);
+							projection = hlsl::math::thin_lens::lhPerspectiveFovMatrix<float>(core::radians(debugFov), io.DisplaySize.x / io.DisplaySize.y, debugCamZFar, debugCamZNear);
 						else
-							projection = hlsl::math::thin_lens::rhPerspectiveFovMatrix<float>(core::radians(debugFov), io.DisplaySize.x / io.DisplaySize.y, debugCamZNear, debugCamZFar);
+							projection = hlsl::math::thin_lens::rhPerspectiveFovMatrix<float>(core::radians(debugFov), io.DisplaySize.x / io.DisplaySize.y, debugCamZFar, debugCamZNear);
 					else
 					{
 						float viewHeight = viewWidth * io.DisplaySize.y / io.DisplaySize.x;
 						if (debugIsLH)
-							projection = hlsl::math::thin_lens::lhProjectionOrthoMatrix<float>(viewWidth, viewHeight, debugCamZNear, debugCamZFar);
+							projection = hlsl::math::thin_lens::lhProjectionOrthoMatrix<float>(viewWidth, viewHeight, debugCamZFar, debugCamZNear);
 						else
-							projection = hlsl::math::thin_lens::rhProjectionOrthoMatrix<float>(viewWidth, viewHeight, debugCamZNear, debugCamZFar);
+							projection = hlsl::math::thin_lens::rhProjectionOrthoMatrix<float>(viewWidth, viewHeight, debugCamZFar, debugCamZNear);
 					}
 					return projection;
 				}());

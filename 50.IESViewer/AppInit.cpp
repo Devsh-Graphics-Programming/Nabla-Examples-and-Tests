@@ -277,6 +277,7 @@ bool IESViewer::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
                         .polygonMode = EPM_FILL,
                         .faceCullingMode = EFCM_NONE,
                         .depthWriteEnable = false,
+                        .depthCompareOp = ECO_ALWAYS,
                     },
                     .blend = {},
                     .subpassIx = 0u
@@ -473,7 +474,7 @@ bool IESViewer::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 
         const auto& params = m_frameBuffers3D.front()->getCreationParameters();
         const float aspect = float(params.width) / float(params.height);
-        const auto projectionMatrix = buildProjectionMatrixPerspectiveFovLH<float32_t>(hlsl::radians(uiState.cameraFovDeg), aspect, 0.1f, 10000.0f);
+        const auto projectionMatrix = buildProjectionMatrixPerspectiveFovLH<float32_t>(hlsl::radians(uiState.cameraFovDeg), aspect, 10000.0f, 0.1f);
         camera = Camera(toCoreVec3(cameraPosition), toCoreVec3(cameraTarget), projectionMatrix, 1.069f, 0.4f);
         uiState.cameraMoveSpeed = camera.getMoveSpeed();
         uiState.cameraRotateSpeed = camera.getRotateSpeed();

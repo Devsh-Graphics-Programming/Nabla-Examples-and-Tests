@@ -110,7 +110,7 @@ public:
 			inputBuf = m_device->createBuffer(std::move(bparams));
 			video::IDeviceMemoryBacked::SDeviceMemoryRequirements reqs = inputBuf->getMemoryReqs();
 			reqs.memoryTypeBits &= data.physicalDevice->getHostVisibleMemoryTypeBits();
-			m_inputAlloc = m_device->allocate(reqs, inputBuf.get(), video::IDeviceMemoryAllocation::EMAF_NONE);
+			m_inputAlloc = m_device->allocate(reqs, { inputBuf.get(), video::IDeviceMemoryAllocation::EMAF_NONE });
 			if (!m_inputAlloc.isValid())
 				m_logger->log("CSamplerBenchmark: failed to allocate input buffer memory", system::ILogger::ELL_ERROR);
 			if (m_inputAlloc.memory->map({ 0ull, m_inputAlloc.memory->getAllocationSize() }, video::IDeviceMemoryAllocation::EMCAF_READ))
@@ -129,7 +129,7 @@ public:
 			outputBuf = m_device->createBuffer(std::move(bparams));
 			video::IDeviceMemoryBacked::SDeviceMemoryRequirements reqs = outputBuf->getMemoryReqs();
 			reqs.memoryTypeBits &= data.physicalDevice->getHostVisibleMemoryTypeBits();
-			m_outputAlloc = m_device->allocate(reqs, outputBuf.get(), video::IDeviceMemoryAllocation::EMAF_NONE);
+			m_outputAlloc = m_device->allocate(reqs, { outputBuf.get(), video::IDeviceMemoryAllocation::EMAF_NONE });
 			if (!m_outputAlloc.isValid())
 				m_logger->log("CSamplerBenchmark: failed to allocate output buffer memory", system::ILogger::ELL_ERROR);
 		}

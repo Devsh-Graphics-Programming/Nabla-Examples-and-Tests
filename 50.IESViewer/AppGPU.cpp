@@ -27,7 +27,7 @@ core::smart_refctd_ptr<IGPUImageView> IESViewer::createImageView(const size_t wi
         return nullptr;
     }
 
-    auto allocation = m_device->allocate(image->getMemoryReqs(), image.get(), nbl::video::IDeviceMemoryAllocation::EMAF_NONE);
+    auto allocation = m_device->allocate(image->getMemoryReqs(), { image.get(), nbl::video::IDeviceMemoryAllocation::EMAF_NONE });
     if (!allocation.isValid())
     {
         m_logger->log("Failed to allocate device memory for \"%s\" image!", system::ILogger::ELL_ERROR, name.c_str());
@@ -73,7 +73,7 @@ core::smart_refctd_ptr<IGPUBuffer> IESViewer::implCreateBuffer(const void* src, 
     if (m_utils)
         memoryReqs.memoryTypeBits &= m_utils->getLogicalDevice()->getPhysicalDevice()->getUpStreamingMemoryTypeBits();
 
-    auto allocation = m_device->allocate(memoryReqs, buffer.get(), core::bitflag<video::IDeviceMemoryAllocation::E_MEMORY_ALLOCATE_FLAGS>(video::IDeviceMemoryAllocation::EMAF_DEVICE_ADDRESS_BIT));
+    auto allocation = m_device->allocate(memoryReqs, { buffer.get(), core::bitflag<video::IDeviceMemoryAllocation::E_MEMORY_ALLOCATE_FLAGS>(video::IDeviceMemoryAllocation::EMAF_DEVICE_ADDRESS_BIT) });
     if (not allocation.isValid())
     {
         m_logger->log("Failed to allocate \"%s\" buffer!", ILogger::ELL_ERROR, name.c_str());

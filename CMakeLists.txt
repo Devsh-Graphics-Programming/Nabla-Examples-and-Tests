@@ -92,7 +92,6 @@ if(NBL_BUILD_EXAMPLES)
 	add_subdirectory(55_RGB18E7S3 EXCLUDE_FROM_ALL)
 	add_subdirectory(59_QuaternionTests)
 	add_subdirectory(61_UI)
-	add_subdirectory(62_CAD EXCLUDE_FROM_ALL) # TODO: Erfan, Przemek, Francisco and co. need to resurrect this
 	add_subdirectory(62_SchusslerTest EXCLUDE_FROM_ALL)
 	add_subdirectory(64_EmulatedFloatTest)
 	add_subdirectory(0_ImportanceSamplingEnvMaps EXCLUDE_FROM_ALL) #TODO: integrate back into 42
@@ -111,6 +110,14 @@ if(NBL_BUILD_EXAMPLES)
 
 	add_subdirectory(74_QuantizedSequenceTests)
 	add_subdirectory(75_EnvmapImportanceSamplingTest)
+	add_subdirectory(75_ImageUploadBenchmark)
+	if (NBL_COMPILE_WITH_CUDA)
+		add_subdirectory(76_CudaInterop)
+	endif()
+
+if(NBL_BUILD_IMGUI)
+	add_subdirectory(100_PhotonCaustics)
+endif()
 
 	# add new examples *before* NBL_GET_ALL_TARGETS invocation, it gathers recursively all targets created so far in this subdirectory
 	NBL_GET_ALL_TARGETS(TARGETS)

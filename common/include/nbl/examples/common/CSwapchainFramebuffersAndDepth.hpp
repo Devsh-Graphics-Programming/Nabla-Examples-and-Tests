@@ -76,7 +76,7 @@ class CSwapchainFramebuffersAndDepth final : public video::CDefaultSwapchainFram
 					.depthUsage = IGPUImage::EUF_RENDER_ATTACHMENT_BIT
 				} });
 
-				device->allocate(image->getMemoryReqs(), image.get());
+				device->allocate(image->getMemoryReqs(), { image.get() });
 
 				m_depthBuffer = device->createImageView({
 					.flags = IGPUImageView::ECF_NONE,

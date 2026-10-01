@@ -128,7 +128,7 @@ int main()
     auto gpuDownloadSSBOmapped = logicalDevice->createBuffer(std::move(ssboCreationParams));
     auto downloadSSBOmemreqs = gpuDownloadSSBOmapped->getMemoryReqs();
     downloadSSBOmemreqs.memoryTypeBits &= logicalDevice->getPhysicalDevice()->getHostVisibleMemoryTypeBits();
-    logicalDevice->allocate(downloadSSBOmemreqs, gpuDownloadSSBOmapped.get());
+    logicalDevice->allocate(downloadSSBOmemreqs, { gpuDownloadSSBOmapped.get() });
 
     video::IGPUDescriptorSetLayout::SBinding gpuBindingsLayout[ES_COUNT] =
     {
