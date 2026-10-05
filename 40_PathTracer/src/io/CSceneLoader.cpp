@@ -4,6 +4,7 @@
 #define _NBL_THIS_EXAMPLE_C_SCENE_LOADER_CPP_
 #include "io/CSceneLoader.h"
 
+#include "nbl/builtin/hlsl/math/thin_lens_projection.hlsl"
 #include "nbl/builtin/hlsl/approx/abs_rel.hlsl"
 
 #include "nbl/ext/MitsubaLoader/CMitsubaLoader.h"
@@ -244,9 +245,16 @@ auto CSceneLoader::load(SLoadParams&& _params) -> SLoadResult
 								dot(orientationT[1],orientationT[1]),
 								dot(orientationT[2],orientationT[2])
 							});
-							// unflip X if left handed
+							// Unflip X if left handed. The handedness flip (e.g., Mitsuba's
+							// `<scale x=-1>`) is absorbed into the orientation only; the NDC X
+							// axis below is kept un-flipped so the rendered image is not
+							// mirrored. This keeps interactive camera controls consistent with
+							// what the user sees on screen.
 							if (det<0.f)
+							{
+								logger.log("Sensor %s (%d-th in XML) has a left-handed toWorld (det<0); stripping the handedness flip - image will NOT be mirrored vs the original Mitsuba render.",ILogger::ELL_WARNING,id,i);
 								scaleRcp.x = -scaleRcp.x;
+							}
 							// Old Code View Matrix:
 							// LH X+ = Left, Y+ = Up, Z+ = Backward
 							// RH X+ = Right, Y+ = Up, Z+ = Forward
@@ -270,6 +278,13 @@ auto CSceneLoader::load(SLoadParams&& _params) -> SLoadResult
 				}
 				// raygen
 				auto& ndc = mutableDefaults.raygen.encoded;
+				auto& viewProj = mutableDefaults.viewProjection;
+				float32_t4x4 invViewMat;
+				invViewMat[0] = mutableDefaults.absoluteTransform[0];
+				invViewMat[1] = mutableDefaults.absoluteTransform[1];
+				invViewMat[2] = mutableDefaults.absoluteTransform[2];
+				invViewMat[3] = float32_t4(0, 0, 0, 1);
+				const auto viewMat = hlsl::inverse(invViewMat);
 				switch (_sensor.type)
 				{
 					case mts_sensor_t::Type::THINLENS:
@@ -279,7 +294,8 @@ auto CSceneLoader::load(SLoadParams&& _params) -> SLoadResult
 						{
 							const auto& persp = _sensor.perspective;
 							// calculations for the projection plane behind the aperture (or in-front if thinking virtual)
-							const float halfFoVRad = hlsl::radians(persp.fov)*0.5f;
+							const float fovRad = hlsl::radians(persp.fov);
+							const float halfFoVRad = fovRad * 0.5f;
 							const auto halfSize = hlsl::tan(halfFoVRad);
 							// by default FoV is y-axis
 							float halfHeight = halfSize;
@@ -329,6 +345,10 @@ auto CSceneLoader::load(SLoadParams&& _params) -> SLoadResult
 							ndc[0] = float32_t3(scaleRcp.z/hlsl::abs(scaleRcp.x),0.f,persp.shiftX)*halfWidth;
 							// column gets negated because in Vulkan NDC.y runs downwards
 							ndc[1] = -float32_t3(0.f,scaleRcp.z/scaleRcp.y,persp.shiftY)*halfHeight;
+
+							const auto projMat = buildProjectionMatrixPerspectiveFovRH(fovRad, aspectRatio, persp.nearClip, persp.farClip);
+							// TODO: account for shiftX and shiftY?
+							viewProj = hlsl::mul(projMat, viewMat);
 						}
 						break;
 					case mts_sensor_t::Type::TELECENTRIC:
@@ -340,12 +360,16 @@ auto CSceneLoader::load(SLoadParams&& _params) -> SLoadResult
 							// extract and negate the scale from the 
 							ndc[0] = float32_t3(1.f/scaleRcp.x,0.f,0.f);
 							ndc[1] = float32_t3(0.f,1.f/scaleRcp.y*float(constants.height)/float(constants.width),0.f);
+
+							const auto projMat = buildProjectionMatrixOrthoRH(float(constants.width), float(constants.height), ortho.nearClip, ortho.farClip);
+							viewProj = hlsl::mul(projMat, viewMat);
 						}
 						break;
 					case mts_sensor_t::Type::SPHERICAL:
 						// irrelevant for spherical cameras, we send rays everywhere
 						ndc[0] = promote<float32_t3>(0);
 						ndc[1] = promote<float32_t3>(0);
+						// TODO: viewProj?
 						break;
 					default:
 						ndc[0][0] = core::nan<float>();
@@ -391,7 +415,7 @@ auto CSceneLoader::load(SLoadParams&& _params) -> SLoadResult
 				if (hlsl::isnan(film.cascadeLuminanceStart))
 				{
 					const float maxRadiance = 1000.f; // TODO: take from the emitter list!
-					mutableDefaults.cascadeLuminanceStart = pow(maxRadiance/mutableDefaults.cascadeLuminanceBase,1.f/float(constants.cascadeCount-1));
+					mutableDefaults.cascadeLuminanceStart = std::pow(maxRadiance/mutableDefaults.cascadeLuminanceBase,1.f/float(constants.cascadeCount-1));
 				}
 				else
 					mutableDefaults.cascadeLuminanceStart = film.cascadeLuminanceStart;
@@ -521,7 +545,7 @@ auto CSceneLoader::load(SLoadParams&& _params) -> SLoadResult
 					if (hlsl::isnan(linearStepZoomSpeed))
 						linearStepZoomSpeed = dyn_t::DefaultZoomSpeed/dyn_t::DefaultSceneSize;
 					// set Zoom Multiplier
-					const float logarithmicZoomSpeed = hlsl::pow(sceneSize,linearStepZoomSpeed);
+					const float logarithmicZoomSpeed = std::pow(sceneSize,linearStepZoomSpeed);
 					dynamicDefaults.zoomable.speed = logarithmicZoomSpeed;
 					// .getInteractiveCameraAnimator()->setStepZoomMultiplier(logarithmicZoomSpeed);
 				}
@@ -544,7 +568,41 @@ auto CSceneLoader::load(SLoadParams&& _params) -> SLoadResult
 
 	// TODO: any CPU-side touch-ups we need to do, like Material IR options
 
-	
+#define TEST
+#ifdef TEST
+	// Create dummy sensors with different configurations for GUI testing
+	if (!sensors.empty())
+	{
+		const auto& baseSensor = sensors.front();
+
+		// Dummy sensor 1: 640x360 no offset
+		{
+			auto dummy = baseSensor;
+			dummy.mutableDefaults.cropWidth = 640;
+			dummy.mutableDefaults.cropHeight = 360;
+			dummy.mutableDefaults.cropOffsetX = 0;
+			dummy.mutableDefaults.cropOffsetY = 0;
+			dummy.constants.width = dummy.mutableDefaults.cropWidth;
+			dummy.constants.height = dummy.mutableDefaults.cropHeight;
+			sensors.push_back(std::move(dummy));
+		}
+
+		//// Dummy sensor 2: 5120x2880 with 128 offset
+		//{
+		//	auto dummy = baseSensor;
+		//	dummy.mutableDefaults.cropWidth = 5120;
+		//	dummy.mutableDefaults.cropHeight = 2880;
+		//	dummy.mutableDefaults.cropOffsetX = 128;
+		//	dummy.mutableDefaults.cropOffsetY = 128;
+		//	dummy.constants.width = dummy.mutableDefaults.cropWidth + 2 * dummy.mutableDefaults.cropOffsetX;
+		//	dummy.constants.height = dummy.mutableDefaults.cropHeight + 2 * dummy.mutableDefaults.cropOffsetY;
+		//	sensors.push_back(std::move(dummy));
+		//}
+
+		logger.log("Added 2 dummy test sensors (total: %d)", ILogger::ELL_INFO, sensors.size());
+	}
+#endif
+
 	// empty out the cache from individual images and meshes taht are not used by the scene
 	assMan->clearAllAssetCache();
 	// return

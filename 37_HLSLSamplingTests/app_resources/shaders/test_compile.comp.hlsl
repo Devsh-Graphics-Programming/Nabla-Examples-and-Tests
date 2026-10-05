@@ -1,4 +1,8 @@
+#pragma shader_stage(compute)
+
 // Compile test: instantiate all sampling types and their concept-required methods to verify DXC compilation
+#include <nbl/builtin/hlsl/concepts.hlsl>
+#include <nbl/builtin/hlsl/sampling/basic.hlsl>
 #include <nbl/builtin/hlsl/sampling/concentric_mapping.hlsl>
 #include <nbl/builtin/hlsl/sampling/polar_mapping.hlsl>
 #include <nbl/builtin/hlsl/sampling/linear.hlsl>
@@ -9,12 +13,15 @@
 #include <nbl/builtin/hlsl/sampling/spherical_triangle.hlsl>
 #include <nbl/builtin/hlsl/sampling/projected_spherical_triangle.hlsl>
 #include <nbl/builtin/hlsl/sampling/spherical_rectangle.hlsl>
+#include <nbl/builtin/hlsl/sampling/projected_spherical_rectangle.hlsl>
+#include <nbl/builtin/hlsl/sampling/alias_table.hlsl>
+#include <nbl/builtin/hlsl/sampling/cumulative_probability.hlsl>
+#include "../common/array_accessor.hlsl"
 using namespace nbl::hlsl;
 
 [[vk::binding(0, 0)]] RWStructuredBuffer<float32_t4> output;
 
 [numthreads(1, 1, 1)]
-[shader("compute")] 
 void main()
 {
    float32_t2 u2 = float32_t2(0.5, 0.5);
@@ -119,7 +126,7 @@ void main()
    // Octant triangle: all dot products between vertices are 0, so cos_sides=0, csc_sides=1
    const float32_t3 triVerts[3] = {float32_t3(1, 0, 0), float32_t3(0, 1, 0), float32_t3(0, 0, 1)};
    shapes::SphericalTriangle<float32_t> shapeTri = shapes::SphericalTriangle<float32_t>::createFromUnitSphereVertices(triVerts);
-   sampling::SphericalTriangle<float32_t, true> sphTri = sampling::SphericalTriangle<float32_t, true>::create(shapeTri);
+   sampling::SphericalTriangle<float32_t> sphTri = sampling::SphericalTriangle<float32_t>::create(shapeTri);
    sampling::SphericalTriangle<float32_t>::cache_type sphTriCache;
    float32_t3 stSample = sphTri.generate(u2, sphTriCache);
    acc.xyz += stSample;
@@ -129,7 +136,7 @@ void main()
    acc.x += sphTri.backwardPdf(stSample);
    acc.x += sphTri.backwardWeight(stSample);
 
-   // SphericalRectangle — generate, forwardPdf, backwardPdf, forwardWeight, backwardWeight
+   // SphericalRectangle — generate, generateSurfaceOffset, forwardPdf, backwardPdf, forwardWeight, backwardWeight
    shapes::CompressedSphericalRectangle<float32_t> csr;
    csr.origin = float32_t3(0.0, 0.0, -1.0);
    csr.right = float32_t3(1.0, 0.0, 0.0);
@@ -140,20 +147,71 @@ void main()
    sampling::SphericalRectangle<float32_t>::cache_type sphRectCache;
    float32_t3 srSample = sphRect.generate(u2, sphRectCache);
    acc.xyz += srSample;
+   acc.xy += sphRect.generateLocalBasisXY(u2, sphRectCache);
    acc.x += sphRect.forwardPdf(u2, sphRectCache);
    acc.x += sphRect.forwardWeight(u2, sphRectCache);
    acc.x += sphRect.backwardPdf(srSample);
    acc.x += sphRect.backwardWeight(srSample);
 
-   // ProjectedSphericalTriangle — generate, forwardPdf, backwardPdf, forwardWeight, backwardWeight
+   // ProjectedSphericalTriangle — generate, forwardPdf, forwardWeight, backwardWeight(L)
    sampling::ProjectedSphericalTriangle<float32_t> projTri = sampling::ProjectedSphericalTriangle<float32_t>::create(shapeTri, float32_t3(0.0, 0.0, 1.0), false);
    sampling::ProjectedSphericalTriangle<float32_t>::cache_type projTriCache;
    float32_t3 ptSample = projTri.generate(u2, projTriCache);
    acc.xyz += ptSample;
    acc.x += projTri.forwardPdf(u2, projTriCache);
    acc.x += projTri.forwardWeight(u2, projTriCache);
-   acc.x += projTri.backwardPdf(ptSample);
    acc.x += projTri.backwardWeight(ptSample);
+
+   // ProjectedSphericalRectangle (UsePdfAsWeight=true) — generate, forwardPdf, forwardWeight, backwardWeight(L)
+   const float32_t3 psrNormal = float32_t3(0.0, 0.0, 1.0);
+   sampling::ProjectedSphericalRectangle<float32_t, true> projRectPdf =
+      sampling::ProjectedSphericalRectangle<float32_t, true>::create(shapeRect, srObserver, psrNormal, false);
+   sampling::ProjectedSphericalRectangle<float32_t, true>::cache_type projRectPdfCache;
+   float32_t3 prPdfSample = projRectPdf.generate(u2, projRectPdfCache);
+   acc.xyz += prPdfSample;
+   acc.x += projRectPdf.forwardPdf(u2, projRectPdfCache);
+   acc.x += projRectPdf.forwardWeight(u2, projRectPdfCache);
+   acc.x += projRectPdf.backwardWeight(prPdfSample);
+
+   // ProjectedSphericalRectangle (UsePdfAsWeight=false) — exercise the MIS-weight path
+   sampling::ProjectedSphericalRectangle<float32_t, false> projRectMis =
+      sampling::ProjectedSphericalRectangle<float32_t, false>::create(shapeRect, srObserver, psrNormal, true);
+   sampling::ProjectedSphericalRectangle<float32_t, false>::cache_type projRectMisCache;
+   float32_t3 prMisSample = projRectMis.generate(u2, projRectMisCache);
+   acc.xyz += prMisSample;
+   acc.x += projRectMis.forwardPdf(u2, projRectMisCache);
+   acc.x += projRectMis.forwardWeight(u2, projRectMisCache);
+   acc.x += projRectMis.backwardWeight(prMisSample);
+
+   // AliasTable — generate (with/without cache), forwardPdf, backwardPdf, forwardWeight, backwardWeight
+   ArrayAccessor<float32_t, 4> aliasProb;
+   aliasProb.data[0] = 0.25; aliasProb.data[1] = 0.5; aliasProb.data[2] = 0.75; aliasProb.data[3] = 1.0;
+   ArrayAccessor<uint32_t, 4> aliasIdx;
+   aliasIdx.data[0] = 1u; aliasIdx.data[1] = 2u; aliasIdx.data[2] = 3u; aliasIdx.data[3] = 0u;
+   ArrayAccessor<float32_t, 4> aliasPdf;
+   aliasPdf.data[0] = 0.25; aliasPdf.data[1] = 0.25; aliasPdf.data[2] = 0.25; aliasPdf.data[3] = 0.25;
+
+   // CumulativeProbabilitySampler — generate (with/without cache), forwardPdf, backwardPdf, forwardWeight, backwardWeight
+   ArrayAccessor<float32_t, 3> cumProb;
+   cumProb.data[0] = 0.25; cumProb.data[1] = 0.5; cumProb.data[2] = 0.75;
+   sampling::CumulativeProbabilitySampler<float32_t, float32_t, uint32_t, ArrayAccessor<float32_t, 3> > cumSampler =
+      sampling::CumulativeProbabilitySampler<float32_t, float32_t, uint32_t, ArrayAccessor<float32_t, 3> >::create(cumProb, 4u);
+   sampling::CumulativeProbabilitySampler<float32_t, float32_t, uint32_t, ArrayAccessor<float32_t, 3> >::cache_type cumCache;
+   uint32_t cumBin0 = cumSampler.generate(0.6);
+   uint32_t cumBin = cumSampler.generate(0.6, cumCache);
+   acc.x += float32_t(cumBin0 + cumBin);
+   acc.x += cumSampler.forwardPdf(0.6, cumCache);
+   acc.x += cumSampler.forwardWeight(0.6, cumCache);
+   acc.x += cumSampler.backwardPdf(cumBin);
+   acc.x += cumSampler.backwardWeight(cumBin);
+
+   // PartitionRandVariable — operator() partitions u into a left/right branch
+   sampling::PartitionRandVariable<float32_t> partition;
+   partition.leftProb = 0.25;
+   float32_t partXi = 0.5;
+   float32_t partRcp;
+   bool partRight = partition(partXi, partRcp);
+   acc.x += partXi + partRcp + float32_t(partRight ? 1 : 0);
 
    output[0] = acc;
 }

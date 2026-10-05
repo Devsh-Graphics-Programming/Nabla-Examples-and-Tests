@@ -4,6 +4,7 @@
 #include <nbl/builtin/hlsl/cpp_compat.hlsl>
 #include <nbl/builtin/hlsl/sampling/projected_spherical_rectangle.hlsl>
 #include <nbl/builtin/hlsl/shapes/spherical_rectangle.hlsl>
+#include "jacobian_test.hlsl"
 
 using namespace nbl::hlsl;
 
@@ -24,12 +25,10 @@ struct ProjectedSphericalRectangleTestResults
 	float32_t2 surfaceOffset;
 	float32_t3 referenceDirection;
 	float32_t forwardPdf;
-	float32_t backwardPdf;
 	float32_t forwardWeight;
 	float32_t backwardWeight;
-	float32_t backwardPdfAtGenerated;
-	float32_t backwardWeightAtGenerated;
 	float32_t2 extents;
+	float32_t jacobianProduct;
 };
 
 struct ProjectedSphericalRectangleTestExecutor
@@ -46,30 +45,29 @@ struct ProjectedSphericalRectangleTestExecutor
 
 		output.extents = rect.extents;
 		sampling::ProjectedSphericalRectangle<float32_t>::cache_type cache;
+		output.generated = sampler.generate(input.u, cache);
+		output.forwardPdf = sampler.forwardPdf(input.u, cache);
+		output.forwardWeight = sampler.forwardWeight(input.u, cache);
+		// backwardWeight now takes a 3D direction; evaluate at generated L.
+		output.backwardWeight = sampler.backwardWeight(output.generated);
+
+		float32_t2 absXY;
 		{
-			output.generated = sampler.generate(input.u, cache);
-			output.forwardPdf = sampler.forwardPdf(input.u, cache);
-			output.forwardWeight = sampler.forwardWeight(input.u, cache);
+			typename sampling::Bilinear<float32_t>::cache_type bc;
+			const float32_t2 warped = sampler.bilinearPatch.generate(input.u, bc);
+			typename sampling::SphericalRectangle<float32_t>::cache_type sphrectCache;
+			absXY = sampler.sphrect.generateLocalBasisXY(warped, sphrectCache);
+			output.surfaceOffset = absXY - float32_t2(sampler.sphrect.r0.x, sampler.sphrect.r0.y);
 		}
 		{
-			sampling::ProjectedSphericalRectangle<float32_t>::cache_type offsetCache;
-			output.surfaceOffset = sampler.generateSurfaceOffset(input.u, offsetCache);
+			const float32_t3 localPoint = float32_t3(absXY.x, absXY.y, sampler.sphrect.r0.z);
+			const float32_t3 localDir = nbl::hlsl::normalize(localPoint);
+			output.referenceDirection = sampler.sphrect.basis[0] * localDir[0]
+			                          + sampler.sphrect.basis[1] * localDir[1]
+			                          + sampler.sphrect.basis[2] * localDir[2];
 		}
-		// reference direction: reconstruct local 3D point from surfaceOffset and normalize
-		{
-			const float32_t3 localPoint = sampler.sphrect.r0 + float32_t3(output.surfaceOffset.x, output.surfaceOffset.y, float32_t(0));
-			output.referenceDirection = nbl::hlsl::normalize(localPoint);
-		}
-		// Test backwardPdf/Weight at the rect center: a deterministic interior point
-		// that avoids amplifying generate's FP errors through backward evaluation.
-		const float32_t2 center = float32_t2(0.5, 0.5);
-		output.backwardPdf = sampler.backwardPdf(center);
-		output.backwardWeight = sampler.backwardWeight(center);
-		// Use cache.warped (the [0,1]^2 input to the spherical rect warp) for consistency
-		// checks, NOT generated/extents (the nonlinear warp output). The bilinear in
-		// forwardPdf evaluates at cache.warped, so backwardPdf must too.
-		output.backwardPdfAtGenerated = sampler.backwardPdf(cache.warped);
-		output.backwardWeightAtGenerated = sampler.backwardWeight(cache.warped);
+
+		output.jacobianProduct = computeJacobianProduct<JACOBIAN_PLAIN>(sampler, input.u, 1e-3f, 10.0f);
 	}
 };
 

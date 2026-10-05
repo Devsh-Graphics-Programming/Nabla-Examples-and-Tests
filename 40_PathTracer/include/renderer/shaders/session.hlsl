@@ -15,6 +15,35 @@ NBL_CONSTEXPR_INLINE_NSPC_SCOPE_VAR uint16_t PrimaryRayRandTripletsUsed = 2;
 // [0].xyz for BRDF Lobe sampling, then reuse [0].z for Russian Roulette, [1].xyz for BTDF Lobe sampling and [1].z for RIS lobe resampling, [2].xyz for NEE
 NBL_CONSTEXPR_INLINE_NSPC_SCOPE_VAR uint16_t RandDimTriplesPerDepth = 3;
 
+// section 5.2 of paper states: All the buffers for the hash grid are allocated with a fixed size corresponding to the maximum cell count, set as 3.2M in practice.
+// we set it to divide evenly by max workgroup size with similar size so 1024*3125=3,200,000
+NBL_CONSTEXPR_INLINE_NSPC_SCOPE_VAR uint32_t HashBufferElementCount = 3200000u;
+
+// ReSTIR relevant buffers
+struct SensorUBOBufferAddresses
+{
+	NBL_CONSTEXPR_STATIC_INLINE uint16_t ReconnectionDataBuf = 0;
+	NBL_CONSTEXPR_STATIC_INLINE uint16_t HashAppendDataBuf = 1;
+
+    NBL_CONSTEXPR_STATIC_INLINE uint16_t InitialReservoirsBuf = 2;	// initial reservoir generated from current frame samples
+	NBL_CONSTEXPR_STATIC_INLINE uint16_t PreviousReservoirsBuf = 3;	// combined reservoirs from previous frame
+    NBL_CONSTEXPR_STATIC_INLINE uint16_t CurrentReservoirsBuf = 4;	// combined reservoirs from current frame
+
+    NBL_CONSTEXPR_STATIC_INLINE uint16_t CellStorageBuf = 5;		// offset index of cells in hash grid
+    NBL_CONSTEXPR_STATIC_INLINE uint16_t IndexBuf = 6;				// index of reservoirs in each cell
+    NBL_CONSTEXPR_STATIC_INLINE uint16_t CheckSumBuf = 7;			// secondary hash key for each cell
+    NBL_CONSTEXPR_STATIC_INLINE uint16_t CellCountersBuf = 8;		// count of reservoirs in each cell
+
+	NBL_CONSTEXPR_STATIC_INLINE uint16_t Count = 9;
+};
+
+struct SReSTIRParams
+{
+	hlsl::float32_t3 sceneMinPos;
+    hlsl::float32_t vfov;	// TODO: will not work with orthographic projection, need to find a combined way to handle this
+    hlsl::float32_t minCellSize;
+};
+
 struct SSensorUniforms
 {
 	NBL_CONSTEXPR_STATIC_INLINE uint16_t ScrambleKeyTextureSize = 512;
@@ -23,12 +52,14 @@ struct SSensorUniforms
 	hlsl::float32_t2 rcpPixelSize;
 	hlsl::rwmc::SPackedSplattingParameters splatting;
 	hlsl::uint16_t2 renderSize;
-	// bitfield
-	uint16_t lastPathDepth : MAX_PATH_DEPTH_LOG2;
-	uint16_t lastNoRussianRouletteDepth : MAX_PATH_DEPTH_LOG2;
+	// bitfield (path-depth bounds moved to the SSensorDynamics push constant so the
+	// GUI can change them live and restart accumulation on change)
 	uint16_t lastCascadeIndex : MAX_CASCADE_COUNT_LOG2;
 	uint16_t unused0 : 12; //BOOST_PP_SUB(15, BOOST_PP_ADD(BOOST_PP_MUL(MAX_PATH_DEPTH_LOG2, 2), MAX_CASCADE_COUNT_LOG2));
 	uint16_t hideEnvironment : 1;
+
+	SReSTIRParams restirParams;
+	uint64_t pStorageBuffers[SensorUBOBufferAddresses::Count];
 };
 
 struct SensorDSBindings
@@ -83,7 +114,7 @@ struct SensorDSBindingCounts
 // could be uint16_t were it not for "Expected Sampled Type to be a 32-bit int, 64-bit int or 32-bit float scalar type for Vulkan environment"
 [[vk::binding(SensorDSBindings::SampleCount,SessionDSIndex)]] RWTexture2DArray<uint32_t> gSampleCount;
 [[vk::binding(SensorDSBindings::RWMCCascades,SessionDSIndex)]] RWTexture2DArray<uint32_t2> gRWMCCascades;
-[[vk::binding(SensorDSBindings::Beauty,SessionDSIndex)]] RWTexture2DArray<uint32_t> gBeauty;
+[[vk::binding(SensorDSBindings::Beauty,SessionDSIndex)]] RWTexture2DArray<float32_t4> gBeauty;
 [[vk::binding(SensorDSBindings::Albedo,SessionDSIndex)]] RWTexture2DArray<float32_t4> gAlbedo;
 // thse two are snorm but stored as unorm, care needs to be taken to map:
 // [-1,1] <-> [0,1] but with 0 being exactly representable, so really [-1,1] <-> [1/1023,1]

@@ -124,6 +124,7 @@ class CSceneLoader : public core::IReferenceCounted, public core::InterfaceUnmov
 
 					// inverse of view matrix, can include SCALE !
 					hlsl::float32_t3x4 absoluteTransform;
+					hlsl::float32_t4x4 viewProjection;
 					// TODO: thin lens and telecentric support
 					struct Raygen
 					{

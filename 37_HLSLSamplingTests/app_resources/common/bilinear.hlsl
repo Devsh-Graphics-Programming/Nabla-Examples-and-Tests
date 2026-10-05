@@ -3,6 +3,7 @@
 
 #include <nbl/builtin/hlsl/cpp_compat.hlsl>
 #include <nbl/builtin/hlsl/sampling/bilinear.hlsl>
+#include "jacobian_test.hlsl"
 
 using namespace nbl::hlsl;
 
@@ -19,6 +20,7 @@ struct BilinearTestResults
 	float32_t forwardPdf;
 	float32_t forwardWeight;
 	float32_t backwardWeight;
+	float32_t jacobianProduct;
 };
 
 struct BilinearTestExecutor
@@ -37,6 +39,10 @@ struct BilinearTestExecutor
 			output.backwardPdf = sampler.backwardPdf(output.generated);
 			output.backwardWeight = sampler.backwardWeight(output.generated);
 		}
+		// marginFactor = 3: same reasoning as Linear; Bilinear is two Linear stages, so the skewed-
+		// coefficient inverse-CDF d^2/du^2 divergence near [0,1]^2 boundary applies on both axes.
+		output.jacobianProduct = computeJacobianProduct<JACOBIAN_PLAIN>(sampler, input.u, 1e-3f, 3.0f);
+
 	}
 };
 

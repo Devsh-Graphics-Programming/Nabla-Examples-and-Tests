@@ -1,9 +1,7 @@
 #ifndef _NBL_THIS_EXAMPLE_PATHTRACE_PUSH_CONSTANTS_HLSL_INCLUDED_
 #define _NBL_THIS_EXAMPLE_PATHTRACE_PUSH_CONSTANTS_HLSL_INCLUDED_
 
-
 #include "renderer/shaders/session.hlsl"
-
 #include <boost/preprocessor/arithmetic/mul.hpp>
 
 
@@ -22,6 +20,8 @@ struct SSensorDynamics
 	// assuming input will be ndc = [-1,1]^2 x {-1}
 	hlsl::float32_t3x4 invView;
 	hlsl::float32_t2x3 ndcToRay;
+	hlsl::float32_t4x4 prevViewProj;
+	hlsl::float32_t3 prevCameraPos;
 	hlsl::float32_t nearClip;
 	hlsl::float32_t tMax;
 	// we can adaptively sample per-pixel, but some bounds need to be kept
@@ -29,6 +29,11 @@ struct SSensorDynamics
 	uint32_t maxSPP : MAX_SPP_LOG2;
 	uint32_t orthoCam : 1;
 	uint32_t keepAccumulating : 1;
+	// path-depth bounds, 0-based (actual max path depth is lastPathDepth+1). Kept in
+	// the dynamics so they upload every frame and a change restarts accumulation
+	// (handled in CSession::update, like a camera move).
+	uint32_t lastPathDepth : MAX_PATH_DEPTH_LOG2;
+	uint32_t lastNoRussianRouletteDepth : MAX_PATH_DEPTH_LOG2;
 };
 #undef MAX_SPP_LOG2
 	
@@ -60,7 +65,7 @@ struct SBeautyPushConstants
 #ifdef __HLSL_VERSION
 	uint32_t2 __16BitData;
 	static_assert(sizeof(uint32_t2)==sizeof(S16BitData));
-	// 
+	//
 	S16BitData get16BitData()
 	{
 		S16BitData retval;
@@ -78,6 +83,14 @@ struct SDebugPushConstants
 {
 	SSensorDynamics sensorDynamics;
 	// some enum/choice of what to debug
+};
+
+struct SScanPushConstants
+{
+	uint64_t pInputBuf;
+    uint64_t pOutputBuf;
+	uint64_t pReduceBuf;
+	uint64_t pWgCounterBuf;
 };
 
 }
