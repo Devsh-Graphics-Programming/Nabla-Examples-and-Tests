@@ -28,13 +28,13 @@ class InputSystem : public core::IReferenceCounted
 			{
 				auto events = channel->getEvents();
 				const auto frontBufferCapacity = channel->getFrontBufferCapacity();
-				if (events.size()>consumedCounter+frontBufferCapacity)
+				if (consumedCounter>events.size() || events.size()-consumedCounter>frontBufferCapacity)
 				{
 					logger.log(
 						"Detected overflow, %d unconsumed events in channel of size %d!",
 						system::ILogger::ELL_ERROR,events.size()-consumedCounter,frontBufferCapacity
 					);
-					consumedCounter = events.size()-frontBufferCapacity;
+					consumedCounter = events.size()>frontBufferCapacity ? events.size()-frontBufferCapacity:0ull;
 				}
 				typename ChannelType::range_t rng(events.begin() + consumedCounter, events.end());
 				processFunc(rng);
@@ -100,8 +100,6 @@ class InputSystem : public core::IReferenceCounted
 				m_logger.log("Waiting For Input Device to be connected...",system::ILogger::ELL_INFO);
 				channels.added.wait(lock);
 			}
-				
-			uint64_t consumedCounter = 0ull;
 
 			using namespace std::chrono;
 			constexpr long long DefaultChannelTimeoutInMicroSeconds = 100*1e3; // 100 mili-seconds
@@ -167,8 +165,6 @@ class InputSystem : public core::IReferenceCounted
 						defaultIdx = newDefaultIdx;
 						channels.defaultChannelIndex = newDefaultIdx;
 						defaultChannel = channels.channels[newDefaultIdx];
-							
-						consumedCounter = defaultChannel->getEvents().size() - defaultChannel->getFrontBufferCapacity(); // to not get overflow in reader when consuming.
 					}
 				}
 			}
@@ -177,7 +173,11 @@ class InputSystem : public core::IReferenceCounted
 				return;
 
 			reader->channel = defaultChannel;
-			reader->consumedCounter = consumedCounter;
+			// A `consumedCounter` indexes ONE channel's stream, it means nothing against another's.
+			// Re-derive it from the channel we're binding to and start at "now": no replay of that
+			// device's backlog (whose events predate what we already consumed from the old one), and
+			// no `size - capacity` underflow on a channel younger than the ring.
+			reader->consumedCounter = defaultChannel->getEvents().size();
 		}
 
 		system::logger_opt_smart_ptr m_logger;

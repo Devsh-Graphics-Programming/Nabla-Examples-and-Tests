@@ -14,6 +14,7 @@ struct SInterpolants
 {
 	float32_t4 ndc : SV_Position;
 	float32_t3 meta : COLOR1;
+	float32_t2 gridUV : COLOR2;
 };
 #include "nbl/builtin/hlsl/math/linalg/fast_affine.hlsl"
 
@@ -38,6 +39,7 @@ SInterpolants BasicVS(uint32_t VertexIndex : SV_VertexID)
         output.meta = mul(pc.matrices.normal,utbs[pc.normalView][VertexIndex].xyz);
     else
         output.meta = mul(inverse(transpose(pc.matrices.normal)),position);
+    output.gridUV = position.xz;
     return output;
 }
 [shader("pixel")]
@@ -50,17 +52,30 @@ float32_t4 BasicFS(SInterpolants input) : SV_Target0
 // Debug fragment shader for grid triangle-strips ("snake" order). It alternates
 // triangle shading to visualize strip winding and connectivity.
 [shader("pixel")]
-float32_t4 BasicFSSnake(SInterpolants input, uint primID : SV_PrimitiveID) : SV_Target0
+float32_t4 BasicFSSnake(SInterpolants input) : SV_Target0
 {
-    float3 N = normalize(pc.normalView < SPushConstants::DescriptorCount ? input.meta : reconstructGeometricNormal(input.meta));
-    float3 base = (primID & 1u) ? float3(0.68,0.68,0.68) : float3(0.88,0.88,0.88);
+    float2 uv = input.gridUV * 32.0;
+    float2 edge = min(frac(uv), 1.0 - frac(uv));
+    float2 aa = max(fwidth(uv), 1e-4.xx);
 
-    float nview = saturate(0.5 + 0.5 * N.z);
-    float grad  = pow(nview, 0.5);
-    float rim   = pow(1.0 - nview, 2.0) * 0.25;
+    float minorX = 1.0 - smoothstep(0.0, aa.x * 1.6, edge.x);
+    float minorY = 1.0 - smoothstep(0.0, aa.y * 1.6, edge.y);
+    float minor = max(minorX, minorY);
 
-    float3 col = base * (0.2 + 0.8 * grad) + rim;
-    return float4(col, 1.0);
+    float2 uvMajor = uv * 0.25;
+    float2 edgeMajor = min(frac(uvMajor), 1.0 - frac(uvMajor));
+    float majorX = 1.0 - smoothstep(0.0, aa.x * 0.55, edgeMajor.x);
+    float majorY = 1.0 - smoothstep(0.0, aa.y * 0.55, edgeMajor.y);
+    float major = max(majorX, majorY);
+
+    float lineMask = max(minor * 0.70, major);
+    if (lineMask < 0.03)
+        discard;
+
+    float3 colMinor = float3(0.58, 0.66, 0.78);
+    float3 colMajor = float3(0.76, 0.83, 0.92);
+    float3 color = lerp(colMinor, colMajor, saturate(major));
+    return float4(color, 1.0);
 }
 
 // TODO: do smooth normals on the cone
@@ -72,6 +87,7 @@ SInterpolants ConeVS(uint32_t VertexIndex : SV_VertexID)
     SInterpolants output;
     output.ndc = math::linalg::promoted_mul(pc.matrices.worldViewProj,position);
     output.meta = mul(inverse(transpose(pc.matrices.normal)),position);
+    output.gridUV = position.xz;
     return output;
 }
 [shader("pixel")]

@@ -8,6 +8,13 @@
 #include "CTgmathTester.h"
 #include "CIntrinsicsTester.h"
 
+#include "nbl/builtin/hlsl/ieee754.hlsl"
+#include "nbl/builtin/hlsl/emulated/float64_t.hlsl"
+#include "nbl/builtin/hlsl/approx/abs_rel.hlsl"
+#include "nbl/builtin/hlsl/approx/ulp.hlsl"
+#include "nbl/builtin/hlsl/approx/vector.hlsl"
+#include "nbl/builtin/hlsl/utils/elementwise.hlsl"
+
 #include <iostream>
 #include <cstdio>
 #include <assert.h>
@@ -25,6 +32,8 @@ using namespace nbl::examples;
 //using namespace glm;
 
 void cpu_tests();
+void ieee754_tests();
+void approx_tests();
 
 struct S
 {
@@ -58,6 +67,9 @@ public:
             return false;
         if (!asset_base_t::onAppInitialized(std::move(system)))
             return false;
+
+        // before the GPU testers, which end the app early when they fail
+        cpu_tests();
 
         bool pass = true;
         {
@@ -238,8 +250,6 @@ public:
 
     void workLoopBody() override
     {
-        cpu_tests();
-
         constexpr auto StartedValue = 0;
 
         smart_refctd_ptr<ISemaphore> progress = m_device->createSemaphore(StartedValue);
@@ -796,5 +806,194 @@ void cpu_tests()
     //TEST_CMATH_FOR_TYPE(float32_t)
     //TEST_CMATH_FOR_TYPE(float64_t)
 #endif
+    ieee754_tests();
+    approx_tests();
     std::cout << "cpu tests done\n";
+}
+
+// `ieee754` bit pattern helpers: uint in gives uint out, float in gives float out
+void ieee754_tests()
+{
+    auto check = [](const bool condition, const char* type, const char* what)
+    {
+        if (!condition)
+            std::cout << "ieee754 test failed [" << type << "]: " << what << '\n';
+    };
+
+    auto testType = []<typename F>(auto& check, const char* type)
+    {
+        using AsUint = hlsl::unsigned_integer_of_size_t<sizeof(F)>;
+        using traits_t = hlsl::ieee754::traits<F>;
+        auto bits = [](const F x) { return hlsl::ieee754::impl::bitCastToUintType(x); };
+        auto fromBits = [](const AsUint b) { return hlsl::ieee754::impl::castBackToFloatType<AsUint>(b); };
+        auto sameBits = [&](const F a, const F b) { return bits(a) == bits(b); };
+        auto biased = [](const int exponent) { return AsUint(traits_t::exponentBias + exponent); };
+
+        const F one = F(1.0);
+        const F oneUp = fromBits(AsUint(bits(one) + AsUint(1)));
+        const F posZero = fromBits(AsUint(0));
+        const F negZero = fromBits(AsUint(traits_t::signMask));
+        const F inf = fromBits(AsUint(traits_t::inf));
+        const F largest = fromBits(AsUint(traits_t::inf - AsUint(1)));
+        const F nanA = fromBits(AsUint(traits_t::quietNaN));
+        const F nanB = fromBits(AsUint(traits_t::quietNaN | AsUint(1)));
+        const F posDenormMin = fromBits(AsUint(1));
+        const F negDenormMin = fromBits(AsUint(traits_t::signMask | AsUint(1)));
+
+        // bit casts round trip
+        static_assert(std::is_same_v<decltype(hlsl::ieee754::impl::castBackToFloatType<AsUint>(AsUint(0))), F>);
+        check(sameBits(fromBits(bits(F(-3.5))), F(-3.5)), type, "castBackToFloatType<AsUint>(bitCastToUintType(x)) == x");
+
+        // replaceBiasedExponent, float version
+        static_assert(std::is_same_v<decltype(hlsl::ieee754::replaceBiasedExponent(F(0), AsUint(0))), F>);
+        check(sameBits(hlsl::ieee754::replaceBiasedExponent(F(3.0), biased(3)), F(12.0)), type, "replaceBiasedExponent(3, bias+3) == 12");
+        check(sameBits(hlsl::ieee754::replaceBiasedExponent(F(-3.0), biased(0)), F(-1.5)), type, "replaceBiasedExponent(-3, bias) == -1.5 (sign and mantissa kept)");
+        check(sameBits(hlsl::ieee754::replaceBiasedExponent(one, AsUint(traits_t::specialValueExp)), inf), type, "replaceBiasedExponent(1, all ones) == inf");
+        check(sameBits(hlsl::ieee754::replaceBiasedExponent(one, AsUint(0)), posZero), type, "replaceBiasedExponent(1, 0) == +0");
+
+        // replaceBiasedExponent, bit pattern version
+        static_assert(std::is_same_v<decltype(hlsl::ieee754::replaceBiasedExponent(AsUint(0), AsUint(0))), AsUint>);
+        check(hlsl::ieee754::replaceBiasedExponent(bits(F(3.0)), biased(3)) == bits(F(12.0)), type, "replaceBiasedExponent(bits(3), bias+3) == bits(12)");
+        check(hlsl::ieee754::replaceBiasedExponent(bits(F(-3.0)), biased(0)) == bits(F(-1.5)), type, "replaceBiasedExponent(bits(-3), bias) == bits(-1.5)");
+        check(hlsl::ieee754::replaceBiasedExponent(bits(F(3.0)), AsUint(~AsUint(0))) == AsUint(bits(F(3.0)) | traits_t::exponentMask), type, "replaceBiasedExponent drops biasedExp bits that don't fit the exponent");
+        check(hlsl::ieee754::replaceBiasedExponent(AsUint(~AsUint(0)), AsUint(0)) == AsUint(~traits_t::exponentMask), type, "replaceBiasedExponent(all ones, 0) only clears the exponent");
+
+        // fastMulExp2 goes through replaceBiasedExponent
+        static_assert(std::is_same_v<decltype(hlsl::ieee754::fastMulExp2(F(0), 0)), F>);
+        static_assert(std::is_same_v<decltype(hlsl::ieee754::fastMulExp2(AsUint(0), 0)), AsUint>);
+        check(sameBits(hlsl::ieee754::fastMulExp2(F(3.0), 2), F(12.0)), type, "fastMulExp2(3, 2) == 12");
+        check(sameBits(hlsl::ieee754::fastMulExp2(F(12.0), -2), F(3.0)), type, "fastMulExp2(12, -2) == 3");
+        check(sameBits(hlsl::ieee754::fastMulExp2(F(-0.75), 3), F(-6.0)), type, "fastMulExp2(-0.75, 3) == -6");
+        check(hlsl::ieee754::fastMulExp2(bits(F(3.0)), 2) == bits(F(12.0)), type, "fastMulExp2(bits(3), 2) == bits(12)");
+
+        // nextDown, nextTowardZero
+        check(sameBits(hlsl::ieee754::nextDown(one), fromBits(AsUint(bits(one) - AsUint(1)))), type, "nextDown(1) is one ULP below 1");
+        check(sameBits(hlsl::ieee754::nextDown(F(-1.0)), fromBits(AsUint(bits(F(-1.0)) + AsUint(1)))), type, "nextDown(-1) is one ULP below -1");
+        check(sameBits(hlsl::ieee754::nextTowardZero(one), hlsl::ieee754::nextDown(one)), type, "nextTowardZero(1) == nextDown(1)");
+
+        // ulpDistance
+        check(hlsl::ieee754::ulpDistance(one, oneUp) == AsUint(1), type, "ulpDistance(1, next after 1) == 1");
+        check(hlsl::ieee754::ulpDistance(oneUp, one) == AsUint(1), type, "ulpDistance is symmetric");
+        check(hlsl::ieee754::ulpDistance(posZero, negZero) == AsUint(0), type, "ulpDistance(+0, -0) == 0");
+        check(hlsl::ieee754::ulpDistance(negDenormMin, posDenormMin) == AsUint(2), type, "ulpDistance(-denorm_min, +denorm_min) == 2");
+        check(hlsl::ieee754::ulpDistance(largest, inf) == AsUint(1), type, "ulpDistance(largest, inf) == 1");
+        check(hlsl::ieee754::ulpDistance(nanA, nanB) == AsUint(1), type, "ulpDistance between NaN payloads == 1");
+    };
+    testType.template operator()<float16_t>(check, "float16_t");
+    testType.template operator()<float32_t>(check, "float32_t");
+    testType.template operator()<float64_t>(check, "float64_t");
+
+    // emulated_float64_t goes through the `uint64_t` bit pattern versions
+    {
+        using emulated_t = hlsl::emulated_float64_t<true, true>;
+        const uint64_t biasedExp3 = uint64_t(hlsl::ieee754::traits<float64_t>::exponentBias + 3);
+        check(hlsl::ieee754::replaceBiasedExponent(emulated_t::create(3.0), biasedExp3).data == std::bit_cast<uint64_t>(12.0), "emulated_float64_t", "replaceBiasedExponent(3, bias+3) == 12");
+        check(hlsl::ieee754::fastMulExp2(emulated_t::create(3.0), 2).data == std::bit_cast<uint64_t>(12.0), "emulated_float64_t", "fastMulExp2(3, 2) == 12");
+        check(hlsl::ieee754::fastMulExp2(emulated_t::create(-12.0), -2).data == std::bit_cast<uint64_t>(-3.0), "emulated_float64_t", "fastMulExp2(-12, -2) == -3");
+    }
+}
+
+// `approx::` comparators and `utils::elementwise*` testers
+void approx_tests()
+{
+    auto check = [](const bool condition, const char* type, const char* what)
+    {
+        if (!condition)
+            std::cout << "approx test failed [" << type << "]: " << what << '\n';
+    };
+
+    auto scalarTests = []<typename F>(auto& check, const char* type)
+    {
+        using AsUint = hlsl::unsigned_integer_of_size_t<sizeof(F)>;
+        using traits_t = hlsl::ieee754::traits<F>;
+        auto fromBits = [](const AsUint bits) { return hlsl::ieee754::impl::castBackToFloatType<AsUint>(bits); };
+        auto sameBits = [](const F a, const F b) { return hlsl::ieee754::impl::bitCastToUintType(a) == hlsl::ieee754::impl::bitCastToUintType(b); };
+
+        const F one = F(1.0);
+        const F oneUp = fromBits(AsUint(hlsl::ieee754::impl::bitCastToUintType(one) + AsUint(1)));
+        const F posZero = fromBits(AsUint(0));
+        const F negZero = fromBits(AsUint(traits_t::signMask));
+        const F inf = fromBits(AsUint(traits_t::inf));
+        const F negInf = fromBits(AsUint(traits_t::inf | traits_t::signMask));
+        const F largest = fromBits(AsUint(traits_t::inf - AsUint(1)));
+        const F nanA = fromBits(AsUint(traits_t::quietNaN));
+        const F nanB = fromBits(AsUint(traits_t::quietNaN | AsUint(1)));
+
+        // hlsl::approx::ulpEqual
+        check(hlsl::approx::ulpEqual(one, oneUp, AsUint(1)), type, "ulpEqual(1, next after 1, 1)");
+        check(!hlsl::approx::ulpEqual(one, oneUp, AsUint(0)), type, "!ulpEqual(1, next after 1, 0)");
+        check(hlsl::approx::ulpEqual(one, hlsl::ieee754::nextDown(one), AsUint(1)), type, "ulpEqual(1, nextDown(1), 1)");
+        check(hlsl::approx::ulpEqual(posZero, negZero, AsUint(0)), type, "ulpEqual(+0, -0, 0)");
+        check(!hlsl::approx::ulpEqual(nanA, nanB, AsUint(~AsUint(0))), type, "!ulpEqual(NaN, NaN', max)");
+        check(!hlsl::approx::ulpEqual(nanA, nanA, AsUint(~AsUint(0))), type, "!ulpEqual(NaN, NaN, max)");
+        check(!hlsl::approx::ulpEqual(inf, largest, AsUint(1)), type, "!ulpEqual(inf, largest, 1)");
+        check(hlsl::approx::ulpEqual(inf, inf, AsUint(0)), type, "ulpEqual(inf, inf, 0)");
+
+        // hlsl::approx::absRelEqual
+        check(hlsl::approx::absRelEqual(F(1e-5), posZero, F(1e-4), F(1e-4)), type, "absRelEqual(1e-5, 0, 1e-4, 1e-4)");
+        check(hlsl::approx::absRelEqual(posZero, F(1e-5), F(1e-4), F(0)), type, "absRelEqual(0, 1e-5, 1e-4, 0)");
+        check(!hlsl::approx::absRelEqual(one, -one, F(0), F(0.1)), type, "!absRelEqual(1, -1, 0, 0.1)");
+        check(hlsl::approx::absRelEqual(F(100.0), F(100.5), F(0), F(0.01)), type, "absRelEqual(100, 100.5, 0, 0.01)");
+        check(!hlsl::approx::absRelEqual(F(100.0), F(102.0), F(0), F(0.01)), type, "!absRelEqual(100, 102, 0, 0.01)");
+        check(hlsl::approx::absRelEqual(posZero, negZero, F(0), F(0)), type, "absRelEqual(+0, -0, 0, 0)");
+        check(hlsl::approx::absRelEqual(inf, inf, F(0), F(0)), type, "absRelEqual(inf, inf, 0, 0)");
+        check(!hlsl::approx::absRelEqual(inf, one, F(0), F(1)), type, "!absRelEqual(inf, 1, 0, 1)");
+        check(!hlsl::approx::absRelEqual(inf, negInf, F(1), F(1)), type, "!absRelEqual(inf, -inf, 1, 1)");
+        // IEEE semantics, NaN is never equal (may not hold for CPU builds with `/fp:fast` or `-ffast-math`)
+        check(!hlsl::approx::absRelEqual(nanA, nanA, F(1), F(1)), type, "!absRelEqual(NaN, NaN, 1, 1)");
+        check(!hlsl::approx::absRelEqual(nanA, one, F(1), F(1)), type, "!absRelEqual(NaN, 1, 1, 1)");
+    };
+    scalarTests.template operator()<float16_t>(check, "float16_t");
+    scalarTests.template operator()<float32_t>(check, "float32_t");
+    scalarTests.template operator()<float64_t>(check, "float64_t");
+
+    // probe 9a from 09_GeometryCreator: a drifted-but-orthogonal dot product vs exact zero
+    check(hlsl::approx::absRelEqual<float64_t>(1e-17, 0.0, 1e-4, 1e-4), "float64_t", "absRelEqual(1e-17, 0, 1e-4, 1e-4)");
+
+    auto compositeTests = []<typename F>(auto& check, const char* type)
+    {
+        using vec_t = hlsl::vector<F, 3>;
+        using mat_t = hlsl::matrix<F, 3, 3>;
+        using pred_t = hlsl::approx::AbsRelEqualPred<F>;
+        const pred_t pred = pred_t::create(F(0.1), F(0));
+
+        const vec_t v = vec_t(F(1), F(2), F(3));
+        const vec_t vOneOff = vec_t(F(1), F(2), F(3.5));
+        const vec_t vAllOff = vec_t(F(11), F(12), F(13));
+        check(hlsl::approx::absRelEqual(v, v, F(0.1), F(0)), type, "vector absRelEqual(v, v)");
+        check(!hlsl::approx::absRelEqual(v, vOneOff, F(0.1), F(0)), type, "vector !absRelEqual with one element off");
+        check(!hlsl::approx::ulpEqual(v, vOneOff, hlsl::unsigned_integer_of_size_t<sizeof(F)>(1)), type, "vector !ulpEqual with one element off");
+        check(!hlsl::utils::elementwiseAll(v, vOneOff, pred), type, "vector !elementwiseAll with one element off");
+        check(hlsl::utils::elementwiseAny(v, vOneOff, pred), type, "vector elementwiseAny with one element off");
+        check(!hlsl::utils::elementwiseNone(v, vOneOff, pred), type, "vector !elementwiseNone with one element off");
+        check(!hlsl::utils::elementwiseAny(v, vAllOff, pred), type, "vector !elementwiseAny with all elements off");
+        check(hlsl::utils::elementwiseNone(v, vAllOff, pred), type, "vector elementwiseNone with all elements off");
+
+        // isPerpendicular with |cos(theta)| <= 1e-5
+        const F cosThetaEpsilon = F(1e-5);
+        const vec_t x = vec_t(F(1), F(0), F(0));
+        const vec_t y = vec_t(F(0), F(1), F(0));
+        const vec_t yTiltedWithin = vec_t(F(5e-6), F(1), F(0)); // cos(theta) ~= 5e-6
+        const vec_t yTiltedBeyond = vec_t(F(2e-5), F(1), F(0)); // cos(theta) ~= 2e-5
+        check(hlsl::approx::isPerpendicular(x, y, cosThetaEpsilon), type, "isPerpendicular(x, y)");
+        check(hlsl::approx::isPerpendicular(x, yTiltedWithin, cosThetaEpsilon), type, "isPerpendicular within epsilon");
+        check(!hlsl::approx::isPerpendicular(x, yTiltedBeyond, cosThetaEpsilon), type, "!isPerpendicular beyond epsilon");
+        check(hlsl::approx::isPerpendicular(x * F(100), yTiltedWithin * F(0.01), cosThetaEpsilon), type, "isPerpendicular within epsilon, scaled");
+        check(!hlsl::approx::isPerpendicular(x * F(100), yTiltedBeyond * F(0.01), cosThetaEpsilon), type, "!isPerpendicular beyond epsilon, scaled");
+        check(!hlsl::approx::isPerpendicular(x, x, cosThetaEpsilon), type, "!isPerpendicular(x, x)");
+        check(hlsl::approx::isPerpendicular(vec_t(F(0), F(0), F(0)), x, cosThetaEpsilon), type, "zero vector isPerpendicular to everything");
+
+        const mat_t m = mat_t(F(1));
+        mat_t mOneOff = m;
+        mOneOff[2][1] = F(0.5);
+        check(hlsl::approx::absRelEqual(m, m, F(0.1), F(0)), type, "matrix absRelEqual(m, m)");
+        check(!hlsl::approx::absRelEqual(m, mOneOff, F(0.1), F(0)), type, "matrix !absRelEqual with one element off");
+        check(!hlsl::utils::elementwiseAll(m, mOneOff, pred), type, "matrix !elementwiseAll with one element off");
+        check(hlsl::utils::elementwiseAny(m, mOneOff, pred), type, "matrix elementwiseAny with one element off");
+        check(!hlsl::utils::elementwiseNone(m, mOneOff, pred), type, "matrix !elementwiseNone with one element off");
+        check(!hlsl::utils::elementwiseNone(m, mat_t(F(10)), pred), type, "matrix !elementwiseNone with only the diagonal off (off-diagonal zeros still match)");
+        check(hlsl::utils::elementwiseNone(m, m + mat_t(F(10)) + mat_t(hlsl::vector<F, 3>(F(10)), hlsl::vector<F, 3>(F(10)), hlsl::vector<F, 3>(F(10))), pred), type, "matrix elementwiseNone with all elements off");
+    };
+    compositeTests.template operator()<float32_t>(check, "float32_t");
+    compositeTests.template operator()<float64_t>(check, "float64_t");
 }

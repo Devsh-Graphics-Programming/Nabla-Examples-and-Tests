@@ -45,10 +45,10 @@ struct QuaternionTestExecutor
 {
     void operator()(NBL_CONST_REF_ARG(QuaternionInputTestValues) input, NBL_REF_ARG(QuaternionTestValues) output)
     {
-        output.quatFromAngleAxis = math::quaternion<float>::create(input.axis, input.angle);
-        output.quatFromEulerAngles = math::quaternion<float>::create(input.pitch, input.yaw, input.roll);
-        output.quatFromMat = math::quaternion<float>::create(input.rotationMat);
-        output.quatFromScaledMat = math::quaternion<float>::create(input.scaleRotationMat);
+        output.quatFromAngleAxis = math::quaternion<float>::createFromAxisAngle(input.axis, input.angle);
+        output.quatFromEulerAngles = math::quaternion<float>::createFromYawPitchRoll(input.yaw, input.pitch, input.roll);
+        output.quatFromMat = math::quaternion<float>::createFromRotationMatrix(input.rotationMat);
+        output.quatFromScaledMat = math::quaternion<float>::createFromRotationMatrix(input.scaleRotationMat);
 
         output.rotationMat = _static_cast<float32_t3x3>(input.quat0);
         output.scaleRotationMat = _static_cast<float32_t3x3>(input.quat2);

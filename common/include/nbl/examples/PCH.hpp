@@ -20,8 +20,6 @@
 #include "nbl/examples/common/InputSystem.hpp"
 #include "nbl/examples/common/CEventCallback.hpp"
 
-#include "nbl/examples/cameras/CCamera.hpp"
-
 #include "nbl/examples/geometry/CGeometryCreatorScene.hpp"
 #include "nbl/examples/geometry/CSimpleDebugRenderer.hpp"
 

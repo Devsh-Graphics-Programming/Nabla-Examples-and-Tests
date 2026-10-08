@@ -11,8 +11,8 @@
 #include "nbl/examples/examples.hpp"
 #include "app_resources/common.hlsl"
 #include "nbl/examples/Tester/ITester.h"
-#include <nbl/builtin/hlsl/testing/orientation_compare.hlsl>
-#include <nbl/builtin/hlsl/testing/vector_length_compare.hlsl>
+#include <nbl/builtin/hlsl/approx/orientation.hlsl>
+#include <nbl/builtin/hlsl/approx/vector.hlsl>
 
 using namespace nbl;
 
@@ -34,9 +34,9 @@ private:
         QuaternionInputTestValues testInput;
         testInput.axis = hlsl::normalize(float32_t3(realDistribution(getRandomEngine()), realDistribution(getRandomEngine()), realDistribution(getRandomEngine())));
         testInput.angle = realDistributionRad(getRandomEngine());
-        testInput.quat0 = math::quaternion<float>::create(float32_t3(realDistribution(getRandomEngine()), realDistribution(getRandomEngine()), realDistribution(getRandomEngine())), realDistribution(getRandomEngine()));
+        testInput.quat0 = math::quaternion<float>::createFromAxisAngle(float32_t3(realDistribution(getRandomEngine()), realDistribution(getRandomEngine()), realDistribution(getRandomEngine())), realDistribution(getRandomEngine()));
         testInput.quat0 = hlsl::normalize(testInput.quat0);
-        testInput.quat1 = math::quaternion<float>::create(float32_t3(realDistribution(getRandomEngine()), realDistribution(getRandomEngine()), realDistribution(getRandomEngine())), realDistribution(getRandomEngine()));
+        testInput.quat1 = math::quaternion<float>::createFromAxisAngle(float32_t3(realDistribution(getRandomEngine()), realDistribution(getRandomEngine()), realDistribution(getRandomEngine())), realDistribution(getRandomEngine()));
         testInput.quat1 = hlsl::normalize(testInput.quat1);
         testInput.quat2 = testInput.quat0 * realDistribution(getRandomEngine()) * 1000.f;
         testInput.quat3 = testInput.quat1 * realDistribution(getRandomEngine()) * 1000.f;
@@ -155,8 +155,8 @@ private:
     bool verifyScaledVectorTestValue(const std::string& memberName, const T& expectedVal, const T& testVal,
         const size_t testIteration, const uint32_t seed, const TestType testType, const float64_t maxAbsoluteDifference, const float64_t maxRelativeDifference)
     {
-        if (nbl::hlsl::testing::orientationCompare(expectedVal, testVal, maxRelativeDifference) &&
-            nbl::hlsl::testing::vectorLengthCompare(expectedVal, testVal, maxAbsoluteDifference, maxRelativeDifference))
+        if (nbl::hlsl::approx::orientationEqual(expectedVal, testVal, maxRelativeDifference) &&
+            nbl::hlsl::approx::squaredLengthEqual(expectedVal, testVal, maxAbsoluteDifference, maxRelativeDifference))
             return true;
 
         printTestFail<T>(memberName, expectedVal, testVal, testIteration, seed, testType, maxRelativeDifference, maxAbsoluteDifference);
@@ -178,8 +178,8 @@ private:
     bool compareVectorTestValues(const T& lhs, const T& rhs, const float64_t maxAllowedDifference, const bool testOrientation)
     {
         if (testOrientation)
-            return nbl::hlsl::testing::orientationCompare(lhs, rhs, maxAllowedDifference);
-        return nbl::hlsl::testing::relativeApproxCompare(lhs, rhs, maxAllowedDifference);
+            return nbl::hlsl::approx::orientationEqual(lhs, rhs, maxAllowedDifference);
+        return nbl::hlsl::approx::absRelEqual(lhs, rhs, maxAllowedDifference, maxAllowedDifference);
     }
 };
 

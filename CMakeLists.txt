@@ -92,7 +92,6 @@ if(NBL_BUILD_EXAMPLES)
 	add_subdirectory(55_RGB18E7S3 EXCLUDE_FROM_ALL)
 	add_subdirectory(59_QuaternionTests)
 	add_subdirectory(61_UI)
-	add_subdirectory(62_CAD EXCLUDE_FROM_ALL) # TODO: Erfan, Przemek, Francisco and co. need to resurrect this
 	add_subdirectory(62_SchusslerTest EXCLUDE_FROM_ALL)
 	add_subdirectory(64_EmulatedFloatTest)
 	add_subdirectory(0_ImportanceSamplingEnvMaps EXCLUDE_FROM_ALL) #TODO: integrate back into 42
@@ -117,6 +116,10 @@ if(NBL_BUILD_EXAMPLES)
 
 	add_subdirectory(78_ChainedScanUnitTest)
 
+if(NBL_BUILD_IMGUI)
+	add_subdirectory(100_PhotonCaustics)
+endif()
+
 	# add new examples *before* NBL_GET_ALL_TARGETS invocation, it gathers recursively all targets created so far in this subdirectory
 	NBL_GET_ALL_TARGETS(TARGETS)
 
@@ -126,7 +129,7 @@ if(NBL_BUILD_EXAMPLES)
 	# we link common example api library and force examples to reuse its PCH
 	foreach(T IN LISTS TARGETS)
 		get_target_property(TYPE ${T} TYPE)
-		if(NOT ${TYPE} MATCHES INTERFACE)
+		if(NOT ${TYPE} MATCHES "INTERFACE|UTILITY")
 			target_link_libraries(${T} PUBLIC ${NBL_EXAMPLES_API_TARGET})
 			target_include_directories(${T} PUBLIC $<TARGET_PROPERTY:${NBL_EXAMPLES_API_TARGET},INCLUDE_DIRECTORIES>)
 			set_target_properties(${T} PROPERTIES DISABLE_PRECOMPILE_HEADERS OFF)

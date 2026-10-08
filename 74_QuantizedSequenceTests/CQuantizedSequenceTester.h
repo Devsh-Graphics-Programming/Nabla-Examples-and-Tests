@@ -11,8 +11,8 @@
 #include "nbl/examples/examples.hpp"
 #include "app_resources/common.hlsl"
 #include "nbl/examples/Tester/ITester.h"
-#include <nbl/builtin/hlsl/testing/orientation_compare.hlsl>
-#include <nbl/builtin/hlsl/testing/vector_length_compare.hlsl>
+#include <nbl/builtin/hlsl/approx/orientation.hlsl>
+#include <nbl/builtin/hlsl/approx/vector.hlsl>
 
 using namespace nbl;
 
