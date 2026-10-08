@@ -50,7 +50,7 @@ class CSwapchainFramebuffersAndDepth final : public video::CDefaultSwapchainFram
 				m_params.subpasses[0],
 				IGPURenderpass::SCreationParams::SubpassesEnd
 			};
-			subpasses[0].depthStencilAttachment.render = { .attachmentIndex = 0,.layout = IGPUImage::LAYOUT::ATTACHMENT_OPTIMAL };
+			subpasses[0].depthStencilAttachment.render = { .attachmentIndex = 0,.layout = {.depth = IGPUImage::LAYOUT::ATTACHMENT_OPTIMAL} };
 			m_params.subpasses = subpasses;
 		}
 

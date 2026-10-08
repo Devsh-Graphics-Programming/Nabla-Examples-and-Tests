@@ -47,8 +47,10 @@ class MonoWindowApplication : public virtual SimpleWindowedApplication
 					const_cast<std::remove_const_t<decltype(m_window)>&>(m_window) = m_winMgr->createWindow(std::move(params));
 				}
 
+			#ifdef _NBL_PLATFORM_WINDOWS_
 				auto surface = CSurfaceVulkanWin32::create(smart_refctd_ptr(m_api), smart_refctd_ptr_static_cast<IWindowWin32>(m_window));
 				const_cast<std::remove_const_t<decltype(m_surface)>&>(m_surface) = CSimpleResizeSurface<CSwapchainFramebuffersAndDepth>::create(std::move(surface));
+			#endif
 			}
 
 			if (m_surface)
