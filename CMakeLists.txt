@@ -118,6 +118,8 @@ if(NBL_BUILD_IMGUI)
 	add_subdirectory(100_PhotonCaustics)
 endif()
 
+	add_subdirectory(101_HTTP_AssetLoading)
+
 	# add new examples *before* NBL_GET_ALL_TARGETS invocation, it gathers recursively all targets created so far in this subdirectory
 	NBL_GET_ALL_TARGETS(TARGETS)
 
