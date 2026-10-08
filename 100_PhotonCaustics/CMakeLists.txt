@@ -11,8 +11,7 @@ set(NBL_INCLUDE_SEARCH_DIRECTORIES
 )
 
 set(NBL_LIBRARIES
-    imguizmo
-	"${NBL_EXT_IMGUI_UI_LIB}"
+    Nabla::ext::ImGUI
 	Nabla::ext::FullScreenTriangle
 )
 

@@ -10,9 +10,7 @@ if(NBL_BUILD_IMGUI AND NBL_BUILD_DEBUG_DRAW)
 	)
 
 	list(APPEND NBL_LIBRARIES 
-		imtestengine
-		imguizmo
-		"${NBL_EXT_IMGUI_UI_LIB}"
+		Nabla::ext::ImGUI
 		"${NBL_EXT_MITSUBA_LOADER_LIB}"
 	)
 
