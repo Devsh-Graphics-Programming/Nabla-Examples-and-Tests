@@ -278,7 +278,7 @@ class GeometryCreatorApp final : public MonoWindowApplication, public BuiltinRes
 				if (ev.type==nbl::ui::SMouseEvent::EET_SCROLL && m_renderer)
 				{
 					gcIndex += int16_t(core::sign(ev.scrollEvent.verticalScroll));
-					gcIndex = core::clamp(gcIndex,0ull,m_renderer->getGeometries().size()-1);
+					gcIndex = core::clamp(gcIndex,size_t(0),m_renderer->getGeometries().size()-1);
 				}
 			}
 		}
