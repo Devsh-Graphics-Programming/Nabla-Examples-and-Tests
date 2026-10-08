@@ -44,132 +44,6 @@ struct SMVPParams
     float P[4*4];
 };
 
-class CSwapchainFramebuffersAndDepth final : public nbl::video::CDefaultSwapchainFramebuffers
-{
-    using scbase_t = CDefaultSwapchainFramebuffers;
-
-public:
-    template<typename... Args>
-    inline CSwapchainFramebuffersAndDepth(ILogicalDevice* device, const asset::E_FORMAT _desiredDepthFormat, Args&&... args)
-        : CDefaultSwapchainFramebuffers(device, std::forward<Args>(args)...)
-    {
-        const IPhysicalDevice::SImageFormatPromotionRequest req = {
-            .originalFormat = _desiredDepthFormat,
-            .usages = {IGPUImage::EUF_RENDER_ATTACHMENT_BIT}
-        };
-        m_depthFormat = m_device->getPhysicalDevice()->promoteImageFormat(req, IGPUImage::TILING::OPTIMAL);
-
-        const static IGPURenderpass::SCreationParams::SDepthStencilAttachmentDescription depthAttachments[] = {
-            {{
-                {
-                    .format = m_depthFormat,
-                    .samples = IGPUImage::ESCF_1_BIT,
-                    .mayAlias = false
-                },
-            /*.loadOp = */{IGPURenderpass::LOAD_OP::CLEAR},
-            /*.storeOp = */{IGPURenderpass::STORE_OP::STORE},
-            /*.initialLayout = */{IGPUImage::LAYOUT::UNDEFINED}, // because we clear we don't care about contents
-            /*.finalLayout = */{IGPUImage::LAYOUT::ATTACHMENT_OPTIMAL} // transition to presentation right away so we can skip a barrier
-        }},
-        IGPURenderpass::SCreationParams::DepthStencilAttachmentsEnd
-        };
-        m_params.depthStencilAttachments = depthAttachments;
-
-        static IGPURenderpass::SCreationParams::SSubpassDescription subpasses[] = {
-            m_params.subpasses[0],
-            IGPURenderpass::SCreationParams::SubpassesEnd
-        };
-        subpasses[0].depthStencilAttachment.render = { .attachmentIndex = 0,.layout = IGPUImage::LAYOUT::ATTACHMENT_OPTIMAL };
-        m_params.subpasses = subpasses;
-
-        // TODO: Two subpass external dependencies SRC and DST needed!
-    }
-
-protected:
-    inline bool onCreateSwapchain_impl(const uint8_t qFam) override
-    {
-        auto device = const_cast<ILogicalDevice*>(m_renderpass->getOriginDevice());
-
-        const auto depthFormat = m_renderpass->getCreationParameters().depthStencilAttachments[0].format;
-        const auto& sharedParams = getSwapchain()->getCreationParameters().sharedParams;
-        auto image = device->createImage({ IImage::SCreationParams{
-            .type = IGPUImage::ET_2D,
-            .samples = IGPUImage::ESCF_1_BIT,
-            .format = depthFormat,
-            .extent = {sharedParams.width,sharedParams.height,1},
-            .mipLevels = 1,
-            .arrayLayers = 1,
-            .depthUsage = IGPUImage::EUF_RENDER_ATTACHMENT_BIT
-        } });
-
-        device->allocate(image->getMemoryReqs(), { image.get() });
-
-        m_depthBuffer = device->createImageView({
-            .flags = IGPUImageView::ECF_NONE,
-            .subUsages = IGPUImage::EUF_RENDER_ATTACHMENT_BIT,
-            .image = std::move(image),
-            .viewType = IGPUImageView::ET_2D,
-            .format = depthFormat,
-            .subresourceRange = {IGPUImage::EAF_DEPTH_BIT,0,1,0,1}
-            });
-
-        const auto retval = scbase_t::onCreateSwapchain_impl(qFam);
-        m_depthBuffer = nullptr;
-        return retval;
-    }
-
-    inline smart_refctd_ptr<IGPUFramebuffer> createFramebuffer(IGPUFramebuffer::SCreationParams&& params) override
-    {
-        params.depthStencilAttachments = &m_depthBuffer.get();
-        return m_device->createFramebuffer(std::move(params));
-    }
-
-    E_FORMAT m_depthFormat;
-    smart_refctd_ptr<IGPUImageView> m_depthBuffer;
-};
-
-class CEventCallback : public ISimpleManagedSurface::ICallback
-{
-public:
-    CEventCallback(nbl::core::smart_refctd_ptr<InputSystem>&& m_inputSystem, nbl::system::logger_opt_smart_ptr&& logger) : m_inputSystem(std::move(m_inputSystem)), m_logger(std::move(logger)) {}
-    CEventCallback() {}
-
-    void setLogger(nbl::system::logger_opt_smart_ptr& logger)
-    {
-        m_logger = logger;
-    }
-    void setInputSystem(nbl::core::smart_refctd_ptr<InputSystem>&& m_inputSystem)
-    {
-        m_inputSystem = std::move(m_inputSystem);
-    }
-private:
-
-    void onMouseConnected_impl(nbl::core::smart_refctd_ptr<nbl::ui::IMouseEventChannel>&& mch) override
-    {
-        m_logger.log("A mouse %p has been connected", nbl::system::ILogger::ELL_INFO, mch.get());
-        m_inputSystem.get()->add(m_inputSystem.get()->m_mouse, std::move(mch));
-    }
-    void onMouseDisconnected_impl(nbl::ui::IMouseEventChannel* mch) override
-    {
-        m_logger.log("A mouse %p has been disconnected", nbl::system::ILogger::ELL_INFO, mch);
-        m_inputSystem.get()->remove(m_inputSystem.get()->m_mouse, mch);
-    }
-    void onKeyboardConnected_impl(nbl::core::smart_refctd_ptr<nbl::ui::IKeyboardEventChannel>&& kbch) override
-    {
-        m_logger.log("A keyboard %p has been connected", nbl::system::ILogger::ELL_INFO, kbch.get());
-        m_inputSystem.get()->add(m_inputSystem.get()->m_keyboard, std::move(kbch));
-    }
-    void onKeyboardDisconnected_impl(nbl::ui::IKeyboardEventChannel* kbch) override
-    {
-        m_logger.log("A keyboard %p has been disconnected", nbl::system::ILogger::ELL_INFO, kbch);
-        m_inputSystem.get()->remove(m_inputSystem.get()->m_keyboard, kbch);
-    }
-
-private:
-    nbl::core::smart_refctd_ptr<InputSystem> m_inputSystem = nullptr;
-    nbl::system::logger_opt_smart_ptr m_logger = nullptr;
-};
-
 class FLIPFluidsApp final : public SimpleWindowedApplication, public BuiltinResourcesApplication
 {
     using device_base_t = SimpleWindowedApplication;
@@ -211,7 +85,11 @@ public:
                 const_cast<std::remove_const_t<decltype(m_window)>&>(m_window) = m_winMgr->createWindow(std::move(params));
             }
 
+        #ifdef _NBL_PLATFORM_WINDOWS_
             auto surface = CSurfaceVulkanWin32::create(smart_refctd_ptr(m_api), smart_refctd_ptr_static_cast<IWindowWin32>(m_window));
+        #elif defined(_NBL_PLATFORM_LINUX_)
+            auto surface = CSurfaceVulkanXcb::create(smart_refctd_ptr(m_api), smart_refctd_ptr_static_cast<IWindowXcb>(m_window));
+        #endif
             const_cast<std::remove_const_t<decltype(m_surface)>&>(m_surface) = nbl::video::CSimpleResizeSurface<CSwapchainFramebuffersAndDepth>::create(std::move(surface));
         }
 
@@ -295,7 +173,7 @@ public:
         params.size = numParticles * 6 * sizeof(VertexInfo);
         createBuffer(particleVertexBuffer, params, IDeviceMemoryAllocation::EMAF_DEVICE_ADDRESS_BIT);
 
-        asset::VkExtent3D gridExtent = { m_gridData.gridSize.x, m_gridData.gridSize.y, m_gridData.gridSize.z };
+        asset::VkExtent3D gridExtent = { uint32_t(m_gridData.gridSize.x), uint32_t(m_gridData.gridSize.y), uint32_t(m_gridData.gridSize.z) };
 
         // cell materials
         createGridTexture(gridCellMaterialImageView, asset::EF_R16_UINT, gridExtent, asset::IImage::EUF_STORAGE_BIT, "cell material0");
@@ -908,8 +786,9 @@ public:
 
         const auto resourceIx = m_realFrameIx % MaxFramesInFlight;
 
-        m_inputSystem->getDefaultMouse(&mouse);
-        m_inputSystem->getDefaultKeyboard(&keyboard);
+        // `getDefault*` blocks until a device connects and windows without input (XCB for now) never get one,
+        // the `tryGetDefault*` variants check and bind under one lock, so a disconnect falls back to autoplay
+        const bool hasInput = m_inputSystem->tryGetDefaultMouse(&mouse) && m_inputSystem->tryGetDefaultKeyboard(&keyboard);
 
         auto updatePresentationTimestamp = [&]()
         {
@@ -931,6 +810,9 @@ public:
         cmdbuf->reset(IGPUCommandBuffer::RESET_FLAGS::RELEASE_RESOURCES_BIT);
         cmdbuf->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
         cmdbuf->beginDebugMarker("Frame Debug FLIP sim begin");
+        if (!hasInput)
+            autoplay();
+        else
         {
             std::vector<SMouseEvent> cameraMouseEvents;
             std::vector<SKeyboardEvent> cameraKeyboardEvents;
@@ -1554,7 +1436,7 @@ private:
             return logFail("Failed to create render semaphore!\n");
             
         ISwapchain::SCreationParams swapchainParams{
-            .surface = m_surface->getSurface()
+            .surface = smart_refctd_ptr<ISurface>(m_surface->getSurface())
         };
         if (!swapchainParams.deduceFormat(m_physicalDevice))
             return logFail("Could not choose a surface format for the swapchain!\n");
@@ -1711,6 +1593,27 @@ private:
         }
     }
 
+    // Without input devices, orbit the camera around the tank and drop the water again periodically
+    void autoplay()
+    {
+        const auto now = clock_t::now();
+        if (m_autoplayStart == clock_t::time_point{})
+            m_autoplayStart = now;
+        if (now - m_lastDropTime > AutoplayDropPeriod)
+        {
+            m_lastDropTime = now;
+            m_shouldInitParticles = true;
+        }
+
+        const double t = std::chrono::duration<double>(now - m_autoplayStart).count();
+        const double angle = t * 2.0 * core::PI<double>() / AutoplayOrbitSeconds;
+        const auto center = hlsl::float64_t3(m_gridData.worldMax.x, m_gridData.worldMax.y * 0.5f, m_gridData.worldMax.z) * 0.5;
+        const auto eye = center + hlsl::float64_t3(std::cos(angle) * 13.0, 6.0, std::sin(angle) * 13.0);
+        hlsl::math::quaternion<hlsl::float64_t> orientation;
+        if (ext::cameras::CCameraMathUtilities::tryCreateQuaternionFromLookAt(eye, center, hlsl::float64_t3(0.0, 1.0, 0.0), orientation))
+            camera = core::make_smart_refctd_ptr<ext::cameras::CFPSCamera>(eye, orientation);
+    }
+
 
     // in-loop functions
     void initializeParticles(IGPUCommandBuffer* cmdbuf)
@@ -1861,6 +1764,10 @@ private:
     InputSystem::ChannelReader<IKeyboardEventChannel> keyboard;
 
     core::smart_refctd_ptr<ext::cameras::CFPSCamera> camera;
+    constexpr static inline clock_t::duration AutoplayDropPeriod = std::chrono::seconds(12);
+    constexpr static inline double AutoplayOrbitSeconds = 40.0;
+    clock_t::time_point m_autoplayStart = {};
+    clock_t::time_point m_lastDropTime = clock_t::now();
     ext::cameras::CCameraMouseKeyboardController cameraController;
     hlsl::float32_t4x4 cameraProjection = hlsl::float32_t4x4(1.0f);
     video::CDumbPresentationOracle oracle;

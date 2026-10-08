@@ -181,6 +181,9 @@ public:
 		const auto MaxWorkgroupSize = m_physicalDevice->getLimits().maxComputeWorkGroupInvocations;
 		const auto MinSubgroupSize = m_physicalDevice->getLimits().minSubgroupSize;
 		const auto MaxSubgroupSize = m_physicalDevice->getLimits().maxSubgroupSize;
+		// a required subgroup size caps the workgroup at `requiredSubgroupSize*maxComputeWorkgroupSubgroups` (VUID-VkPipelineShaderStageCreateInfo-pNext-02756),
+		// Intel ANV reports 64 subgroups so SIMD8 can't go past 512 invocations and the GPU hangs
+		const auto MaxWorkgroupSubgroups = m_physicalDevice->getLimits().maxComputeWorkgroupSubgroups;
 		for (uint32_t useNative = 0; useNative <= uint32_t(m_physicalDevice->getProperties().limits.shaderSubgroupArithmetic); useNative++)
 		{
 			if (useNative)
@@ -191,7 +194,7 @@ public:
 			for (auto subgroupSize = MinSubgroupSize; subgroupSize <= MaxSubgroupSize; subgroupSize *= 2u)
 			{
 				const uint8_t subgroupSizeLog2 = hlsl::findMSB(subgroupSize);
-				for (uint32_t workgroupSize = subgroupSize; workgroupSize <= MaxWorkgroupSize; workgroupSize *= 2u)
+				for (uint32_t workgroupSize = subgroupSize; workgroupSize <= hlsl::min<uint32_t>(MaxWorkgroupSize,subgroupSize*MaxWorkgroupSubgroups); workgroupSize *= 2u)
 				{
 					// make sure renderdoc captures everything for debugging
 					m_api->startCapture();
