@@ -114,6 +114,8 @@ if(NBL_BUILD_EXAMPLES)
 		add_subdirectory(76_CudaInterop)
 	endif()
 
+	add_subdirectory(78_ChainedScanUnitTest)
+
 if(NBL_BUILD_IMGUI)
 	add_subdirectory(100_PhotonCaustics)
 endif()
