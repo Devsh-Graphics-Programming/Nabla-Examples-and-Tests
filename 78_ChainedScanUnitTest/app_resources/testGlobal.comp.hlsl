@@ -120,10 +120,10 @@ struct ReduceAccessor
         bda::__ptr<T> target = ptr + index;
         return glsl::atomicMax(target.template deref().ptr.value, value);
     }
-    T atomicExchange(const uint64_t index, const T value)
+    void atomicStore(const uint64_t index, const T value)
     {
         bda::__ptr<T> target = ptr + index;
-        return glsl::atomicExchange(target.template deref().ptr.value, value);
+        spirv::atomicStore(target.template deref().ptr.value, spv::ScopeDevice, spv::MemorySemanticsReleaseMask | spv::MemorySemanticsUniformMemoryMask, value);
     }
 
     void memoryBarrier()
