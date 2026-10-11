@@ -35,7 +35,7 @@ Same entry point with `EHICF_MEMCPY_BIT` and a single region spanning the whole 
 
 `IUtilities::updateImageViaStagingBuffer` and `IUtilities::downloadImageViaStagingBuffer`, the engine's general purpose streaming path. Four rows: upload and download through an `IUtilities` with the default 64 MiB streaming buffers, and again through one created with 4 MiB upload and 4 MiB download buffers. The same 256 tile regions are passed every frame. Both functions chop the regions with `ImageRegionIterator` to fit whatever the streaming buffer can hand out; the 4 MiB pair cannot hold one 16 MiB frame, so every frame becomes about four chunks with an `overflowSubmit` between them. The submit count per direction is logged next to the throughput.
 
-The frame loop drives one `SIntendedSubmitInfo` with 4 scratch command buffers and a timeline semaphore. Per frame: write the start timestamp, call the utility, fetch `getCommandBufferForRecording` again since an internal overflow may have rotated the scratch buffer, write the end timestamp, `overflowSubmit`. That submit is the frame's own submit and the frames-in-flight throttle. Upload runs the CPU format filter into staging, so it is CPU bound, especially in Debug. Download records `copyImageToBuffer` plus a `HOST_READ` barrier and latches a `CDownstreamingDataConsumer` on the semaphore, which memcpys the rows into the destination vector when the streaming buffer is later polled.
+The frame loop drives one `SIntendedSubmitInfo` with 4 scratch command buffers and a timeline semaphore. Per frame: write the start timestamp, call the utility, fetch `getCommandBufferForRecording` again since an internal overflow may have rotated the scratch buffer, write the end timestamp, `overflowSubmit`. That submit is the frame's own submit and the frames-in-flight throttle. Upload copies each chunk into staging on the CPU with `ImageRegionIterator::copyChunk`, so it is CPU bound, especially in Debug. Download records `copyImageToBuffer` plus a `HOST_READ` barrier and latches a `CDownstreamingDataConsumer` on the semaphore, which calls `copyChunk` to copy the chunk into the destination vector when the streaming buffer is later polled. `copyChunk` uses one memcpy per run of rows, slices or layers that has no padding on either side when the formats match, a byte reshuffle for 8 bit formats that differ only in channel count or order, and `CSwizzleAndConvertImageFilter` for any other format change.
 
 After the download loop `cull_frees` is drained until the last consumer has run, then the destination vector is memcmp'd against the uploaded source and `round-trip verification: PASS` or `FAIL` is logged per utility. Every frame downloads into the same vector, so only the last frame's bytes are checked.
 
@@ -69,3 +69,14 @@ The MEMCPY row needs a buffer holding the image's opaque optimal tiling bytes. P
 6. Two PNGs are written to the working directory. `writeImagePNG` wraps the bytes in an `ICPUImage` over an adopted `ICPUBuffer` (no copy), wraps that in an `ICPUImageView`, and writes it with the asset manager:
    - `hostcopy_gradient.png`: the gradient as uploaded, W x H.
    - `hostcopy_optimal_tiling_raw.png`: the MEMCPY download reinterpreted as linear RGBA8 rows, W wide and ceil(hostMemcpySize / (W\*4)) tall, zero padded at the tail. It contains the same colors as the gradient but rearranged; the rearrangement is the driver's optimal tiling pattern.
+
+## Filter benchmarks
+
+Run with `--filters` (add `--quick` to skip the ablations) to skip the streaming benchmarks and run `FilterBenchmarks.h` instead. It times the CPU copy paths on their own and checks every output byte against a reference:
+
+- `CCopyImageFilter` on whole, clipped, layered, 3D and BC7 regions, into heap memory, uncached host visible system memory and BAR memory. Sentinel bytes around each region check that padding is never written.
+- `CSwizzleAndConvertImageFilter` with the byte reshuffle against the generic decode and encode path, including whether an 8 bit promotion comes out exact.
+- Ablations of the parts: plain memcpy, iteration only, decode and encode into the destination or into a temporary, memcpy piece sizes and store types into staging.
+- A full `IUtilities` upload and download of a 20000x7000 `R8G8B8_SRGB` image into `R8G8B8A8_SRGB`, run interleaved with a same format upload after a warm up, then verified.
+
+Output lines start with `FILTERBENCH`. On laptops the GPU can stay in a low power state during CPU bound uploads, which lowers the PCIe link speed and caps CPU writes into BAR memory, so compare upload numbers only within one run.
