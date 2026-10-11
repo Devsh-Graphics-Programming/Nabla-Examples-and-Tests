@@ -37,7 +37,7 @@ Same entry point with `EHICF_MEMCPY_BIT` and a single region spanning the whole 
 
 The frame loop drives one `SIntendedSubmitInfo` with 4 scratch command buffers and a timeline semaphore. Per frame: write the start timestamp, call the utility, fetch `getCommandBufferForRecording` again since an internal overflow may have rotated the scratch buffer, write the end timestamp, `overflowSubmit`. That submit is the frame's own submit and the frames-in-flight throttle. Upload runs the CPU format filter into staging, so it is CPU bound, especially in Debug. Download records `copyImageToBuffer` plus a `HOST_READ` barrier and latches a `CDownstreamingDataConsumer` on the semaphore, which memcpys the rows into the destination vector when the streaming buffer is later polled.
 
-After the download loop `cull_frees` is drained until the last consumer has run, then the destination vector is memcmp'd against the uploaded source and `round-trip verification: PASS` or `FAIL` is logged per utility.
+After the download loop `cull_frees` is drained until the last consumer has run, then the destination vector is memcmp'd against the uploaded source and `round-trip verification: PASS` or `FAIL` is logged per utility. Every frame downloads into the same vector, so only the last frame's bytes are checked.
 
 The columns mean something different for these rows. Wall time is measured the same way, but the GPU timestamps bracket the whole utility call, so when the utility overflows they span several submits and the host stalls between them. The GPU column is a true GPU number only for frames that fit in one allocation; for the 4 MiB rows it is close to wall time. The Memcpy column is zero since the memcpy happens inside the utility.
 

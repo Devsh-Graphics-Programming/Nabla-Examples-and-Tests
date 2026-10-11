@@ -1,5 +1,6 @@
 #include "nbl/examples/examples.hpp"
 #include "nbl/this_example/builtin/build/spirv/keys.hpp"
+#include "FilterBenchmarks.h"
 #include <chrono>
 #include <thread>
 #include <atomic>
@@ -78,6 +79,11 @@ public:
 		}
 
 		m_queue = getQueue(IQueue::FAMILY_FLAGS::GRAPHICS_BIT);
+		if (std::find(argv.begin(),argv.end(),"--filters")!=argv.end())
+		{
+			nbl::this_example::CFilterBenchmarks(m_device.get(),m_queue,m_logger.get()).run(std::find(argv.begin(),argv.end(),"--quick")!=argv.end());
+			return true;
+		}
 		{
 			IGPUImage::SCreationParams imgParams{};
 			imgParams.type = IImage::E_TYPE::ET_2D;
