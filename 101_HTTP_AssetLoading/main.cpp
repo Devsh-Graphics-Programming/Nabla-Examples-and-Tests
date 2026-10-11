@@ -5,6 +5,7 @@
 #include "nbl/examples/examples.hpp"
 
 #include "nbl/ext/FullScreenTriangle/FullScreenTriangle.h"
+#include <nbl/system/CHttpDownloader.h>
 
 using namespace nbl;
 using namespace core;
@@ -23,7 +24,7 @@ class HTTP_AssetLoading final : public SimpleWindowedApplication, public Builtin
 		using device_base_t = SimpleWindowedApplication;
 		using asset_base_t = BuiltinResourcesApplication;
 
-		constexpr static inline std::string_view DefaultImagePath = "../../media/color_space_test/R8G8B8_1.jpg";
+		std::string DefaultImageUrl = "http://127.0.0.1:8000/istockphoto-518272508-2048x2048.jpg";
 
 	public:
 		// Yay thanks to multiple inheritance we cannot forward ctors anymore
@@ -227,10 +228,9 @@ class HTTP_AssetLoading final : public SimpleWindowedApplication, public Builtin
 			m_window->setCaption("[Nabla Engine] HTTP Asset Load Test Demo");
 
 			m_loadCWD = "..";
-			const std::string imagePath(DefaultImagePath);
-			const auto cpuImgView = getImageView(imagePath);
+			const auto cpuImgView = getImageViewFromUrl(DefaultImageUrl);
 			if (!cpuImgView)
-				return logFail("Failed to load image \"%s\"!", imagePath.c_str());
+				return logFail("Failed to load image \"%s\"!", DefaultImageUrl.c_str());
 
 			smart_refctd_ptr<IGPUCommandBuffer> uploadCmdBuf;
 			if (!m_cmdPool->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY, { &uploadCmdBuf,1 }))
@@ -262,7 +262,7 @@ class HTTP_AssetLoading final : public SimpleWindowedApplication, public Builtin
 				gpuView = reservation.getGPUObjects<ICPUImageView>().front().value;
 				if (!gpuView)
 					return logFail("Failed to convert the image to a GPU image view!");
-				gpuView->getCreationParameters().image->setObjectDebugName(imagePath.c_str());
+				gpuView->getCreationParameters().image->setObjectDebugName(DefaultImageUrl.c_str());
 
 				IQueue::SSubmitInfo::SCommandBufferInfo cmdbufInfo = {uploadCmdBuf.get()};
 				m_intendedSubmit.scratchCommandBuffers = {&cmdbufInfo,1};
@@ -412,6 +412,9 @@ class HTTP_AssetLoading final : public SimpleWindowedApplication, public Builtin
 		//
 		system::path m_loadCWD;
 		//
+
+		CHttpDownloader m_downloader;
+
 		smart_refctd_ptr<IGPUGraphicsPipeline> m_pipeline;
 		// We can't use the same semaphore for acquire and present, because that would disable "Frames in Flight" by syncing previous present against next acquire.
 		smart_refctd_ptr<ISemaphore> m_semaphore;
@@ -429,45 +432,53 @@ class HTTP_AssetLoading final : public SimpleWindowedApplication, public Builtin
 		push_constants_t m_pc = {};
 
 	private:
-		smart_refctd_ptr<ICPUImageView> getImageView(const std::string& inAssetPath)
+		smart_refctd_ptr<ICPUImageView> getImageViewFromUrl(const std::string& imageUrl)
 		{
-			m_logger->log("Loading image from path %s", ILogger::ELL_INFO, inAssetPath.c_str());
+			m_logger->log("Loading image from url %s", ILogger::ELL_INFO, imageUrl.c_str());
 
-			constexpr auto cachingFlags = static_cast<IAssetLoader::E_CACHING_FLAGS>(IAssetLoader::ECF_DONT_CACHE_REFERENCES & IAssetLoader::ECF_DONT_CACHE_TOP_LEVEL);
-			const IAssetLoader::SAssetLoadParams loadParams(0ull, nullptr, cachingFlags, IAssetLoader::ELPF_NONE, m_logger.get(), m_loadCWD);
+			CHttpDownloader::future_t<smart_refctd_ptr<IFile>> future;
 
-			auto bundle = m_assetMgr->getAsset(inAssetPath, loadParams);
-			auto contents = bundle.getContents();
-			if (contents.empty())
+			m_downloader.downloadFile(future, imageUrl);
+
+			if (auto lock = future.acquire())
 			{
-				m_logger->log("Failed to load image with path %s!", ILogger::ELL_ERROR, (m_loadCWD / inAssetPath).c_str());
-				return nullptr;
-			}
+				smart_refctd_ptr<IFile> file = *lock;
 
-			const auto& asset = contents[0];
-			ICPUImageView::SCreationParams viewParams = {};
-			switch (asset->getAssetType())
-			{
-				case IAsset::ET_IMAGE:
+				constexpr auto cachingFlags = static_cast<IAssetLoader::E_CACHING_FLAGS>(IAssetLoader::ECF_DONT_CACHE_REFERENCES & IAssetLoader::ECF_DONT_CACHE_TOP_LEVEL);
+				const IAssetLoader::SAssetLoadParams loadParams(0ull, nullptr, cachingFlags, IAssetLoader::ELPF_NONE, m_logger.get(), m_loadCWD);
+
+				auto bundle = m_assetMgr->getAsset(file.get(), file->getFileName().string(), loadParams);
+				auto contents = bundle.getContents();
+				if (contents.empty())
 				{
-					auto image = smart_refctd_ptr_static_cast<ICPUImage>(asset);
-					const auto format = image->getCreationParameters().format;
+					m_logger->log("Failed to load from url %s!", ILogger::ELL_ERROR, (m_loadCWD / imageUrl).c_str());
+					return nullptr;
+				}
 
-					viewParams =
+				const auto& asset = contents[0];
+				ICPUImageView::SCreationParams viewParams = {};
+				switch (asset->getAssetType())
+				{
+				case IAsset::ET_IMAGE:
 					{
-						.flags = ICPUImageView::E_CREATE_FLAGS::ECF_NONE,
-						.image = std::move(image),
-						.viewType = IImageView<ICPUImage>::E_TYPE::ET_2D_ARRAY,
-						.format = format,
-						.subresourceRange = {
-							.aspectMask = IImage::E_ASPECT_FLAGS::EAF_COLOR_BIT,
-							.baseMipLevel = 0u,
-							.levelCount = ICPUImageView::remaining_mip_levels,
-							.baseArrayLayer = 0u,
-							.layerCount = ICPUImageView::remaining_array_layers
-						}
-					};
-				} break;
+						auto image = smart_refctd_ptr_static_cast<ICPUImage>(asset);
+						const auto format = image->getCreationParameters().format;
+
+						viewParams =
+						{
+							.flags = ICPUImageView::E_CREATE_FLAGS::ECF_NONE,
+							.image = std::move(image),
+							.viewType = IImageView<ICPUImage>::E_TYPE::ET_2D_ARRAY,
+							.format = format,
+							.subresourceRange = {
+								.aspectMask = IImage::E_ASPECT_FLAGS::EAF_COLOR_BIT,
+								.baseMipLevel = 0u,
+								.levelCount = ICPUImageView::remaining_mip_levels,
+								.baseArrayLayer = 0u,
+								.layerCount = ICPUImageView::remaining_array_layers
+							}
+						};
+					} break;
 
 				case IAsset::ET_IMAGE_VIEW:
 					// loaders may produce 2D views (e.g. KTX), the shader samples a 2D array
@@ -478,9 +489,13 @@ class HTTP_AssetLoading final : public SimpleWindowedApplication, public Builtin
 				default:
 					m_logger->log("Failed to load ICPUImage or ICPUImageView got some other Asset Type!", ILogger::ELL_ERROR);
 					return nullptr;
+				}
+
+				return ICPUImageView::create(std::move(viewParams));
 			}
 
-			return ICPUImageView::create(std::move(viewParams));
+			m_logger->log("Failed to download %s", ILogger::ELL_ERROR, imageUrl.c_str());
+			return nullptr;
 		}
 };
 
