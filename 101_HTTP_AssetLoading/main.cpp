@@ -64,6 +64,9 @@ class HTTP_AssetLoading final : public SimpleWindowedApplication, public Builtin
 			if (!asset_base_t::onAppInitialized(std::move(system)))
 				return false;
 
+			//Need to set curl logger
+			m_downloader.setLogger(smart_refctd_ptr(m_logger));
+
 			// Load FSTri Shader
 			ext::FullScreenTriangle::ProtoPipeline fsTriProtoPPln(m_assetMgr.get(), m_device.get(), m_logger.get());
 			if (!fsTriProtoPPln)
@@ -440,7 +443,8 @@ class HTTP_AssetLoading final : public SimpleWindowedApplication, public Builtin
 
 			m_downloader.downloadFile(future, imageUrl);
 
-			if (auto lock = future.acquire())
+			// an empty lock means the request was cancelled, a null file means the download failed
+			if (auto lock = future.acquire(); lock && *lock)
 			{
 				smart_refctd_ptr<IFile> file = *lock;
 
