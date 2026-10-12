@@ -5,8 +5,10 @@ struct PushConstantData
 {
     uint64_t pInputBuf;
     uint64_t pOutputBuf[8];
-	uint64_t pReduceBuf;
-	uint64_t pWgCounterBuf;
+	uint64_t pReduceBufs;
+	uint32_t reduceBufStride;
+	uint64_t pWgCounterBufs;
+	uint32_t counterBufStride;
 };
 
 namespace arithmetic
@@ -23,9 +25,9 @@ struct bit_and : nbl::hlsl::bit_and<T>
 #endif
 };
 template<typename T>
-struct bit_or : nbl::hlsl::bit_or<T>
+struct bit_xor : nbl::hlsl::bit_xor<T>
 {
-	using base_t = nbl::hlsl::bit_or<T>;
+	using base_t = nbl::hlsl::bit_xor<T>;
 
 	NBL_CONSTEXPR_STATIC_INLINE uint16_t BindingIndex = 1;
 #ifndef __HLSL_VERSION
@@ -33,9 +35,9 @@ struct bit_or : nbl::hlsl::bit_or<T>
 #endif
 };
 template<typename T>
-struct bit_xor : nbl::hlsl::bit_xor<T>
+struct bit_or : nbl::hlsl::bit_or<T>
 {
-	using base_t = nbl::hlsl::bit_xor<T>;
+	using base_t = nbl::hlsl::bit_or<T>;
 
 	NBL_CONSTEXPR_STATIC_INLINE uint16_t BindingIndex = 2;
 #ifndef __HLSL_VERSION

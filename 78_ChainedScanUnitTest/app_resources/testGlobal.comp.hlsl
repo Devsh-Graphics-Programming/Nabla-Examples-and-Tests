@@ -166,10 +166,10 @@ struct operation_t
         data_proxy_t dataAccessor = data_proxy_t::create(pc.pInputBuf, pc.pOutputBuf[Binop::BindingIndex]);
 
         using reduce_proxy_t = ReduceAccessor<otype_t>;
-        bda::__ptr<otype_t> ptr = bda::__ptr<otype_t>::create(pc.pReduceBuf);
+        bda::__ptr<otype_t> ptr = bda::__ptr<otype_t>::create(pc.pReduceBufs + Binop::BindingIndex * pc.reduceBufStride);
         reduce_proxy_t reduceAccessor = reduce_proxy_t::create(ptr);
 
-        WorkgroupCounter wgCounter = WorkgroupCounter::create(pc.pWgCounterBuf);
+        WorkgroupCounter wgCounter = WorkgroupCounter::create(pc.pWgCounterBufs + Binop::BindingIndex * pc.counterBufStride);
 
         OPERATION<config_t,binop_base_t,device_capabilities>::template __call<data_proxy_t, ScratchProxy, reduce_proxy_t, WorkgroupCounter>(dataAccessor,arithmeticAccessor,reduceAccessor,wgCounter);
         // we barrier before because we alias the accessors for Binop
@@ -189,13 +189,13 @@ static void subtest()
 
 void test()
 {
-    // subtest<arithmetic::bit_and<uint32_t> >();
-    // subtest<arithmetic::bit_xor<uint32_t> >();
-    // subtest<arithmetic::bit_or<uint32_t> >();
+    subtest<arithmetic::bit_and<uint32_t> >();
+    subtest<arithmetic::bit_xor<uint32_t> >();
+    subtest<arithmetic::bit_or<uint32_t> >();
     subtest<arithmetic::plus<uint32_t> >();
-    // subtest<arithmetic::multiplies<uint32_t> >();
-    // subtest<arithmetic::minimum<uint32_t> >();
-    // subtest<arithmetic::maximum<uint32_t> >();
+    subtest<arithmetic::multiplies<uint32_t> >();
+    subtest<arithmetic::minimum<uint32_t> >();
+    subtest<arithmetic::maximum<uint32_t> >();
 }
 
 [numthreads(config_t::WorkgroupSize,1,1)]

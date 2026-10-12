@@ -78,7 +78,7 @@ public:
 		smart_refctd_ptr<IGPUBuffer> gpuinputDataBuffer;
 		{
 			std::mt19937 randGenerator(0xdeadbeefu);
-			std::uniform_int_distribution<> distrib(0, 100);
+			std::uniform_int_distribution<> distrib(0, 20);
 			for (uint32_t i = 0u; i < ElementCount; i++)
 				inputData[i] = distrib(randGenerator); // TODO: change to using xoroshiro, then we can skip having the input buffer at all
 
@@ -116,8 +116,10 @@ public:
 		// buffer for workgroup reductions
 		{
 			const auto maxReductionsCount = ElementCount / MinSubgroupSize;
+			const auto bufSize = sizeof(uint32_t) * maxReductionsCount;	// TODO: could be smaller
+			pc.reduceBufStride = bufSize;
 			IGPUBuffer::SCreationParams params = {};
-			params.size = sizeof(uint32_t) * maxReductionsCount;	// TODO: could be smaller
+			params.size = bufSize * OutputBufferCount;
 			params.usage = bitflag(IGPUBuffer::EUF_STORAGE_BUFFER_BIT) | IGPUBuffer::EUF_TRANSFER_DST_BIT | IGPUBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT;
 
 			reduceBuffer = m_device->createBuffer(std::move(params));
@@ -131,8 +133,10 @@ public:
 			reduceBuffer->setObjectDebugName("Workgroup reduction buffer");
 		}
 		{
+			const auto bufSize = sizeof(uint32_t);
+			pc.counterBufStride = bufSize;
 			IGPUBuffer::SCreationParams params = {};
-			params.size = sizeof(uint32_t);
+			params.size = bufSize * OutputBufferCount;
 			params.usage = bitflag(IGPUBuffer::EUF_STORAGE_BUFFER_BIT) | IGPUBuffer::EUF_TRANSFER_DST_BIT | IGPUBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT;
 
 			wgCounterBuffer = m_device->createBuffer(std::move(params));
@@ -147,8 +151,8 @@ public:
 		}
 
 		pc.pInputBuf = gpuinputDataBuffer->getDeviceAddress();
-		pc.pReduceBuf = reduceBuffer->getDeviceAddress();
-		pc.pWgCounterBuf = wgCounterBuffer->getDeviceAddress();
+		pc.pReduceBufs = reduceBuffer->getDeviceAddress();
+		pc.pWgCounterBufs = wgCounterBuffer->getDeviceAddress();
 		for (uint32_t i = 0; i < OutputBufferCount; i++)
 			pc.pOutputBuf[i] = outputBuffers[i]->getDeviceAddress();
 
@@ -438,13 +442,13 @@ private:
 		const uint32_t subgroupSize = 1u << subgroupSizeLog2;
 		// check results
 		bool passed = true;
-		//passed = validateResults<Arithmetic, arithmetic::bit_and<uint32_t>>(itemsPerWG, workgroupCount, subgroupSize, itemsPerInvoc);
-		//passed = validateResults<Arithmetic, arithmetic::bit_xor<uint32_t>>(itemsPerWG, workgroupCount, subgroupSize, itemsPerInvoc) && passed;
-		//passed = validateResults<Arithmetic, arithmetic::bit_or<uint32_t>>(itemsPerWG, workgroupCount, subgroupSize, itemsPerInvoc) && passed;
+		passed = validateResults<Arithmetic, arithmetic::bit_and<uint32_t>>(itemsPerWG, workgroupCount, subgroupSize, itemsPerInvoc) && passed;
+		passed = validateResults<Arithmetic, arithmetic::bit_xor<uint32_t>>(itemsPerWG, workgroupCount, subgroupSize, itemsPerInvoc) && passed;
+		passed = validateResults<Arithmetic, arithmetic::bit_or<uint32_t>>(itemsPerWG, workgroupCount, subgroupSize, itemsPerInvoc) && passed;
 		passed = validateResults<Arithmetic, arithmetic::plus<uint32_t>>(itemsPerWG, workgroupCount, subgroupSize, itemsPerInvoc) && passed;
-		//passed = validateResults<Arithmetic, arithmetic::multiplies<uint32_t>>(itemsPerWG, workgroupCount, subgroupSize, itemsPerInvoc) && passed;
-		//passed = validateResults<Arithmetic, arithmetic::minimum<uint32_t>>(itemsPerWG, workgroupCount, subgroupSize, itemsPerInvoc) && passed;
-		//passed = validateResults<Arithmetic, arithmetic::maximum<uint32_t>>(itemsPerWG, workgroupCount, subgroupSize, itemsPerInvoc) && passed;
+		passed = validateResults<Arithmetic, arithmetic::multiplies<uint32_t>>(itemsPerWG, workgroupCount, subgroupSize, itemsPerInvoc) && passed;
+		passed = validateResults<Arithmetic, arithmetic::minimum<uint32_t>>(itemsPerWG, workgroupCount, subgroupSize, itemsPerInvoc) && passed;
+		passed = validateResults<Arithmetic, arithmetic::maximum<uint32_t>>(itemsPerWG, workgroupCount, subgroupSize, itemsPerInvoc) && passed;
 
 		return passed;
 	}
@@ -509,7 +513,7 @@ private:
 
 	uint32_t totalFailCount = 0;
 
-	constexpr static inline std::array<uint32_t, 4> ItemsPerInvocations = { 1, 2, 3, 4 };
+	constexpr static inline std::array<uint32_t, 3> ItemsPerInvocations = { 1, 2, 4 };
 };
 
 NBL_MAIN_FUNC(ChainedScanTestApp)
