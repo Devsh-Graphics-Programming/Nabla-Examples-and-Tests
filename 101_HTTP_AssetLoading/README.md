@@ -1,40 +1,6 @@
-# Color Space Test
+# HTTP Asset Download
 
 ## Usage
 
-Just launch the executable to display images from default input list. Application supports following command-line arguments:
-
-- `--verbose`: Enables detailed logging. Useful for debugging or understanding the app's process.
-- `--test`: Performs tests by comparing the current data with reference data saved on disk. 
-- `--update-references`: Updates reference files with the current data. 
-- `--input-list`: Overrides default path to input list with images to run the application with.
-
-## CTest
-
-### JSON output format
-
-The application can be tested with `hash` mode which outputs JSON files containing image hash values for image asset. Here's an example of a JSON output.
-
-```json
-{
-    "image": [
-        18371015033211807487,
-        861795556807058655,
-        16487203311713844624,
-        15144584759684060250
-    ]
-}
-```
-
-### Fire tests!
-
-Build the application with desired configuration, `cd` to it's build directory and fire
-
-```bash
-ctest -C <configuration> --progress --stop-on-failure --verbose
-```
-
-![24csthash](https://github.com/user-attachments/assets/817a2ba3-e4f4-44d8-bc37-483ea5d56d1f)
-
-
-test writes current image hash to a file in the application's *cwd* (`bin`) and compares with saved reference file - if there is a difference the test fails.
+Run the app. The demo uses libCURL (https://github.com/curl/curl) to download an image from Nabla's **media/color_space_test folder** and a mesh from **media/ply** folders respectively, and then display it on screen.
+The demo accepts 1 and 2 as user inputs to cycle between the image and the mesh. 
