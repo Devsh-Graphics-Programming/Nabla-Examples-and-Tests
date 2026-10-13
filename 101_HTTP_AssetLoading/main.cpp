@@ -7,6 +7,8 @@
 #include "nbl/ext/FullScreenTriangle/FullScreenTriangle.h"
 #include <nbl/system/CHttpDownloader.h>
 
+#include <nbl/builtin/hlsl/math/thin_lens_projection.hlsl>
+
 using namespace nbl;
 using namespace core;
 using namespace hlsl;
@@ -16,15 +18,22 @@ using namespace ui;
 using namespace video;
 using namespace nbl::examples;
 
-// defines for sampler tests can be found in the file below
 #include "app_resources/push_constants.hlsl"
 
 class HTTP_AssetLoading final : public SimpleWindowedApplication, public BuiltinResourcesApplication
 {
-		using device_base_t = SimpleWindowedApplication;
-		using asset_base_t = BuiltinResourcesApplication;
+	using device_base_t = SimpleWindowedApplication;
+	using asset_base_t = BuiltinResourcesApplication;
 
-		std::string DefaultImageUrl = "http://127.0.0.1:8000/istockphoto-518272508-2048x2048.jpg";
+	std::string ImageFileUrl = "https://raw.githubusercontent.com/Devsh-Graphics-Programming/Nabla-Example-And-Tests-Media/f48f2afe20fee6b356be4c1d922393c751d4dfa7/color_space_test/R8G8B8_1.jpg";
+	std::string PlyFileUrl = "https://github.com/Devsh-Graphics-Programming/Nabla-Example-And-Tests-Media/raw/f48f2afe20fee6b356be4c1d922393c751d4dfa7/ply/Spanner-ply.ply";
+
+	enum class EDisplayMode : uint8_t
+	{
+		Image,	// key 1
+		Ply		// key 2
+	};
+	constexpr static inline auto DepthFormat = EF_D32_SFLOAT;
 
 	public:
 		// Yay thanks to multiple inheritance we cannot forward ctors anymore
@@ -39,7 +48,8 @@ class HTTP_AssetLoading final : public SimpleWindowedApplication, public Builtin
 			{
 				{
 					IWindow::SCreationParams params = {};
-					params.callback = core::make_smart_refctd_ptr<nbl::video::ISimpleManagedSurface::ICallback>();
+					// forwards keyboard and mouse channels to the input system
+					params.callback = core::make_smart_refctd_ptr<CEventCallback>(smart_refctd_ptr(m_inputSystem),smart_refctd_ptr(m_logger));
 					params.width = 1280;
 					params.height = 720;
 					params.x = 32;
@@ -50,15 +60,23 @@ class HTTP_AssetLoading final : public SimpleWindowedApplication, public Builtin
 					const_cast<std::remove_const_t<decltype(m_window)>&>(m_window) = m_winMgr->createWindow(std::move(params));
 				}
 				auto surface = CSurfaceVulkanWin32::create(smart_refctd_ptr(m_api),smart_refctd_ptr_static_cast<IWindowWin32>(m_window));
-				const_cast<std::remove_const_t<decltype(m_surface)>&>(m_surface) = nbl::video::CSimpleResizeSurface<nbl::video::CDefaultSwapchainFramebuffers>::create(std::move(surface));
+				const_cast<std::remove_const_t<decltype(m_surface)>&>(m_surface) = nbl::video::CSimpleResizeSurface<CSwapchainFramebuffersAndDepth>::create(std::move(surface));
 			}
 			if (m_surface)
+			{
 				return {{m_surface->getSurface()/*,EQF_NONE*/}};
+			}
+
 			return {};
 		}
 		
 		inline bool onAppInitialized(smart_refctd_ptr<ISystem>&& system) override
 		{
+			// the window callback created inside `getSurfaces` needs the system, logger and input system to already exist
+			if (!MonoSystemMonoLoggerApplication::onAppInitialized(smart_refctd_ptr(system)))
+				return false;
+			m_inputSystem = make_smart_refctd_ptr<InputSystem>(logger_opt_smart_ptr(smart_refctd_ptr(m_logger)));
+
 			if (!device_base_t::onAppInitialized(smart_refctd_ptr(system)))
 				return false;
 			if (!asset_base_t::onAppInitialized(std::move(system)))
@@ -137,11 +155,12 @@ class HTTP_AssetLoading final : public SimpleWindowedApplication, public Builtin
 					.dstSubpass = 0,
 					.memoryBarrier = {
 					// since we're uploading the image data we're about to draw
-					.srcStageMask = asset::PIPELINE_STAGE_FLAGS::COPY_BIT,
+					// the depth attachment is reused by the next frame, so wait for its last writes too
+					.srcStageMask = asset::PIPELINE_STAGE_FLAGS::COPY_BIT|asset::PIPELINE_STAGE_FLAGS::LATE_FRAGMENT_TESTS_BIT,
 					.srcAccessMask = asset::ACCESS_FLAGS::TRANSFER_WRITE_BIT,
-					.dstStageMask = asset::PIPELINE_STAGE_FLAGS::COLOR_ATTACHMENT_OUTPUT_BIT,
+					.dstStageMask = asset::PIPELINE_STAGE_FLAGS::EARLY_FRAGMENT_TESTS_BIT|asset::PIPELINE_STAGE_FLAGS::COLOR_ATTACHMENT_OUTPUT_BIT,
 					// because we clear and don't blend
-					.dstAccessMask = asset::ACCESS_FLAGS::COLOR_ATTACHMENT_WRITE_BIT
+					.dstAccessMask = asset::ACCESS_FLAGS::DEPTH_STENCIL_ATTACHMENT_WRITE_BIT|asset::ACCESS_FLAGS::COLOR_ATTACHMENT_WRITE_BIT
 				}
 				// leave view offsets and flags default
 			},
@@ -158,7 +177,8 @@ class HTTP_AssetLoading final : public SimpleWindowedApplication, public Builtin
 			},
 			IGPURenderpass::SCreationParams::DependenciesEnd
 			};
-			auto scResources = std::make_unique<CDefaultSwapchainFramebuffers>(m_device.get(), swapchainParams.surfaceFormat.format, dependencies);
+			// the depth buffer is only needed by the mesh modes, the full screen triangle ignores it
+			auto scResources = std::make_unique<CSwapchainFramebuffersAndDepth>(m_device.get(), DepthFormat, swapchainParams.surfaceFormat.format, dependencies);
 			if (!scResources->getRenderpass())
 				return logFail("Failed to create Renderpass!");
 
@@ -183,6 +203,10 @@ class HTTP_AssetLoading final : public SimpleWindowedApplication, public Builtin
 			// Let's just use the same queue since there's no need for async present
 			if (!m_surface || !m_surface->init(queue, std::move(scResources), swapchainParams.sharedParams))
 				return logFail("Could not create Window & Surface or initialize the Surface!");
+
+			m_renderer = CSimpleDebugRenderer::create(m_assetMgr.get(), static_cast<CSwapchainFramebuffersAndDepth*>(m_surface->getSwapchainResources())->getRenderpass(), 0);
+			if (!m_renderer)
+				return logFail("Failed to create the mesh renderer!");
 
 			// create the descriptor sets, 1 per FIF and with enough room for one image sampler
 			{
@@ -231,9 +255,9 @@ class HTTP_AssetLoading final : public SimpleWindowedApplication, public Builtin
 			m_window->setCaption("[Nabla Engine] HTTP Asset Load Test Demo");
 
 			m_loadCWD = "..";
-			const auto cpuImgView = getImageViewFromUrl(DefaultImageUrl);
+			const auto cpuImgView = getImageViewFromUrl(ImageFileUrl);
 			if (!cpuImgView)
-				return logFail("Failed to load image \"%s\"!", DefaultImageUrl.c_str());
+				return logFail("Failed to load image \"%s\"!", ImageFileUrl.c_str());
 
 			smart_refctd_ptr<IGPUCommandBuffer> uploadCmdBuf;
 			if (!m_cmdPool->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY, { &uploadCmdBuf,1 }))
@@ -265,7 +289,7 @@ class HTTP_AssetLoading final : public SimpleWindowedApplication, public Builtin
 				gpuView = reservation.getGPUObjects<ICPUImageView>().front().value;
 				if (!gpuView)
 					return logFail("Failed to convert the image to a GPU image view!");
-				gpuView->getCreationParameters().image->setObjectDebugName(DefaultImageUrl.c_str());
+				gpuView->getCreationParameters().image->setObjectDebugName(ImageFileUrl.c_str());
 
 				IQueue::SSubmitInfo::SCommandBufferInfo cmdbufInfo = {uploadCmdBuf.get()};
 				m_intendedSubmit.scratchCommandBuffers = {&cmdbufInfo,1};
@@ -302,100 +326,149 @@ class HTTP_AssetLoading final : public SimpleWindowedApplication, public Builtin
 			return true;
 		}
 
-		inline void workLoopBody() override
+	void processInputs()
+	{
+		// 1 = image, 2 = PLY
 		{
-			// framesInFlight: ensuring safe execution of command buffers and acquires, `framesInFlight` only affect semaphore waits, don't use this to index your resources because it can change with swapchain recreation.
-			const uint32_t framesInFlight = core::min(MaxFramesInFlight, m_surface->getMaxAcquiresInFlight());
-			// We block for semaphores for 2 reasons here:
-				// A) Resource: Can't use resource like a command buffer BEFORE previous use is finished! [MaxFramesInFlight]
-				// B) Acquire: Can't have more acquires in flight than a certain threshold returned by swapchain or your surface helper class. [MaxAcquiresInFlight]
-			if (m_submitIx >= framesInFlight)
+			m_inputSystem->getDefaultKeyboard(&m_keyboard);
+			std::optional<EDisplayMode> requested;
+			m_keyboard.consumeEvents([&](const IKeyboardEventChannel::range_t& events)->void
 			{
-				const ISemaphore::SWaitInfo cbDonePending[] =
+				for (const auto& event : events)
 				{
+					if (event.action != SKeyboardEvent::ECA_RELEASED)
 					{
-						.semaphore = m_semaphore.get(),
-						.value = m_submitIx + 1 - framesInFlight
+						continue;
 					}
-				};
-				if (m_device->blockForSemaphores(cbDonePending) != ISemaphore::WAIT_RESULT::SUCCESS)
-					return;
+
+					switch (event.keyCode)
+					{
+					case E_KEY_CODE::EKC_1: requested = EDisplayMode::Image; break;
+					case E_KEY_CODE::EKC_2: requested = EDisplayMode::Ply; break;
+					default: break;
+					}
+				}
+			}, m_logger.get());
+
+			if (requested)
+			{
+				switchTo(*requested);
 			}
+		}
+	}
 
-			auto acquire = m_surface->acquireNextImage();
-			if (!acquire)
-				return;
-
-			const auto resourceIx = m_submitIx%MaxFramesInFlight;
-
-			auto queue = getGraphicsQueue();
-			auto cmdbuf = m_cmdBufs[resourceIx].get();
-			auto ds = m_descriptorSets[resourceIx].get();
-			cmdbuf->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
-
-			auto scRes = static_cast<CDefaultSwapchainFramebuffers*>(m_surface->getSwapchainResources());
-			const auto& framebufferParams = scRes->getFramebuffer(acquire.imageIndex)->getCreationParameters();
-			const VkRect2D currentRenderArea =
+	bool render_and_present()
+	{
+		// framesInFlight: ensuring safe execution of command buffers and acquires, `framesInFlight` only affect semaphore waits, don't use this to index your resources because it can change with swapchain recreation.
+		const uint32_t framesInFlight = core::min(MaxFramesInFlight, m_surface->getMaxAcquiresInFlight());
+		// We block for semaphores for 2 reasons here:
+		// A) Resource: Can't use resource like a command buffer BEFORE previous use is finished! [MaxFramesInFlight]
+		// B) Acquire: Can't have more acquires in flight than a certain threshold returned by swapchain or your surface helper class. [MaxAcquiresInFlight]
+		if (m_submitIx >= framesInFlight)
+		{
+			const ISemaphore::SWaitInfo cbDonePending[] =
 			{
-				.offset = {0,0},
-				.extent = {framebufferParams.width,framebufferParams.height}
-			};
-			{
-				const asset::SViewport viewport =
 				{
-					.width = float(framebufferParams.width),
-					.height = float(framebufferParams.height)
-				};
-				cmdbuf->setViewport({&viewport,1});
-			}
-			cmdbuf->setScissor({&currentRenderArea,1});
+					.semaphore = m_semaphore.get(),
+					.value = m_submitIx + 1 - framesInFlight
+				}
+			};
+			if (m_device->blockForSemaphores(cbDonePending) != ISemaphore::WAIT_RESULT::SUCCESS)
+				return true;
+		}
 
+		auto acquire = m_surface->acquireNextImage();
+		if (!acquire)
+			return true;
+
+		const auto resourceIx = m_submitIx%MaxFramesInFlight;
+
+		auto queue = getGraphicsQueue();
+		auto cmdbuf = m_cmdBufs[resourceIx].get();
+		auto ds = m_descriptorSets[resourceIx].get();
+		cmdbuf->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
+
+		auto scRes = static_cast<CSwapchainFramebuffersAndDepth*>(m_surface->getSwapchainResources());
+		const auto& framebufferParams = scRes->getFramebuffer(acquire.imageIndex)->getCreationParameters();
+		const VkRect2D currentRenderArea =
+		{
+			.offset = {0,0},
+			.extent = {framebufferParams.width,framebufferParams.height}
+		};
+		{
+			const asset::SViewport viewport =
 			{
-				const IGPUCommandBuffer::SClearColorValue clearValue = { .float32 = {1.f,0.f,1.f,1.f} };
-				const IGPUCommandBuffer::SRenderpassBeginInfo info = {
-					.framebuffer = scRes->getFramebuffer(acquire.imageIndex),
-					.colorClearValues = &clearValue,
-					.depthStencilClearValues = nullptr,
-					.renderArea = currentRenderArea
-				};
-				cmdbuf->beginRenderPass(info,IGPUCommandBuffer::SUBPASS_CONTENTS::INLINE);
-			}
+				.width = float(framebufferParams.width),
+				.height = float(framebufferParams.height)
+			};
+			cmdbuf->setViewport({&viewport,1});
+		}
+		cmdbuf->setScissor({&currentRenderArea,1});
 
+		{
+			const IGPUCommandBuffer::SClearColorValue clearValue = { .float32 = {1.f,0.f,1.f,1.f} };
+			// reverse Z, the mesh pipelines use `GREATER`
+			const IGPUCommandBuffer::SClearDepthStencilValue depthValue = { .depth = 0.f };
+			const IGPUCommandBuffer::SRenderpassBeginInfo info = {
+				.framebuffer = scRes->getFramebuffer(acquire.imageIndex),
+				.colorClearValues = &clearValue,
+				.depthStencilClearValues = &depthValue,
+				.renderArea = currentRenderArea
+			};
+			cmdbuf->beginRenderPass(info,IGPUCommandBuffer::SUBPASS_CONTENTS::INLINE);
+		}
+
+		if (m_mode==EDisplayMode::Image)
+		{
 			cmdbuf->bindGraphicsPipeline(m_pipeline.get());
 			cmdbuf->pushConstants(m_pipeline->getLayout(),hlsl::ShaderStage::ESS_FRAGMENT,0,sizeof(push_constants_t),&m_pc);
 			cmdbuf->bindDescriptorSets(nbl::asset::EPBP_GRAPHICS,m_pipeline->getLayout(),3,1,&ds);
 			ext::FullScreenTriangle::recordDrawCall(cmdbuf);
-			cmdbuf->endRenderPass();
+		}
+		else
+		{
+			const float aspectRatio = float(framebufferParams.width)/float(framebufferParams.height);
+			recordMesh(cmdbuf,aspectRatio);
+		}
+		cmdbuf->endRenderPass();
 
-			cmdbuf->end();
+		cmdbuf->end();
 
-			const IQueue::SSubmitInfo::SSemaphoreInfo rendered[1] = {{
-				.semaphore = m_semaphore.get(),
-				.value = ++m_submitIx,
-				// just as we've outputted all pixels, signal
-				.stageMask = PIPELINE_STAGE_FLAGS::COLOR_ATTACHMENT_OUTPUT_BIT
+		const IQueue::SSubmitInfo::SSemaphoreInfo rendered[1] = {{
+			.semaphore = m_semaphore.get(),
+			.value = ++m_submitIx,
+			// just as we've outputted all pixels, signal
+			.stageMask = PIPELINE_STAGE_FLAGS::COLOR_ATTACHMENT_OUTPUT_BIT
+		}};
+		{
+			const IQueue::SSubmitInfo::SCommandBufferInfo commandBuffers[1] = {{
+				.cmdbuf = cmdbuf
 			}};
+			// we don't need to wait for the transfer semaphore, because we submit everything to the same queue
+			const IQueue::SSubmitInfo::SSemaphoreInfo acquired[1] = {{
+				.semaphore = acquire.semaphore,
+				.value = acquire.acquireCount,
+				.stageMask = PIPELINE_STAGE_FLAGS::NONE
+			}};
+			const IQueue::SSubmitInfo infos[1] = {{
+				.waitSemaphores = acquired,
+				.commandBuffers = commandBuffers,
+				.signalSemaphores = rendered
+			}};
+			// we won't signal the semaphore if no success
+			if (queue->submit(infos)!=IQueue::RESULT::SUCCESS)
 			{
-				const IQueue::SSubmitInfo::SCommandBufferInfo commandBuffers[1] = {{
-					.cmdbuf = cmdbuf
-				}};
-				// we don't need to wait for the transfer semaphore, because we submit everything to the same queue
-				const IQueue::SSubmitInfo::SSemaphoreInfo acquired[1] = {{
-					.semaphore = acquire.semaphore,
-					.value = acquire.acquireCount,
-					.stageMask = PIPELINE_STAGE_FLAGS::NONE
-				}};
-				const IQueue::SSubmitInfo infos[1] = {{
-					.waitSemaphores = acquired,
-					.commandBuffers = commandBuffers,
-					.signalSemaphores = rendered
-				}};
-				// we won't signal the sema if no success
-				if (queue->submit(infos)!=IQueue::RESULT::SUCCESS)
-					m_submitIx--;
+				m_submitIx--;
 			}
+		}
 
-			m_surface->present(acquire.imageIndex, rendered);
+		return m_surface->present(acquire.imageIndex, rendered);
+	}
+
+		inline void workLoopBody() override
+		{
+			processInputs();
+			render_and_present();
 		}
 
 		inline bool keepRunning() override
@@ -406,12 +479,29 @@ class HTTP_AssetLoading final : public SimpleWindowedApplication, public Builtin
 
 		inline bool onAppTerminated() override
 		{
+			if (m_device)
+			{
+				m_device->waitIdle();
+			}
+
+			m_renderer = nullptr;
+			m_inputSystem = nullptr;
+
 			return device_base_t::onAppTerminated();
 		}
 
 	protected:
 		smart_refctd_ptr<IWindow> m_window;
-		smart_refctd_ptr<CSimpleResizeSurface<CDefaultSwapchainFramebuffers>> m_surface;
+		smart_refctd_ptr<CSimpleResizeSurface<CSwapchainFramebuffersAndDepth>> m_surface;
+		smart_refctd_ptr<InputSystem> m_inputSystem;
+		InputSystem::ChannelReader<IKeyboardEventChannel> m_keyboard;
+		// draws the PLY
+		smart_refctd_ptr<CSimpleDebugRenderer> m_renderer;
+		EDisplayMode m_mode = EDisplayMode::Image;
+		bool m_plyLoaded = false;
+		hlsl::float64_t3 m_modelCenter = hlsl::float64_t3(0.0);
+		double m_modelSize = 1.0;
+		const std::chrono::steady_clock::time_point m_startTime = std::chrono::steady_clock::now();
 		//
 		system::path m_loadCWD;
 		//
@@ -429,12 +519,211 @@ class HTTP_AssetLoading final : public SimpleWindowedApplication, public Builtin
 		uint64_t m_submitIx = 0;
 		// Maximum frames which can be simultaneously submitted,used to cycle through our per-frame resources like command buffers
 		constexpr static inline uint32_t MaxFramesInFlight = 3u;
+
 		// Enough Command Buffers and other resources for all frames in flight!
 		std::array<smart_refctd_ptr<IGPUDescriptorSet>,MaxFramesInFlight> m_descriptorSets;
 		std::array<smart_refctd_ptr<IGPUCommandBuffer>,MaxFramesInFlight> m_cmdBufs;
 		push_constants_t m_pc = {};
 
 	private:
+
+		void switchTo(const EDisplayMode mode)
+		{
+			if (mode==m_mode)
+				return;
+
+			if (mode==EDisplayMode::Ply && !m_plyLoaded)
+			{
+				if (!loadPlyFromUrl())
+				{
+					m_logger->log("Could not show the PLY", ILogger::ELL_ERROR);
+					return;
+				}
+				m_plyLoaded = true;
+			}
+
+			m_mode = mode;
+			m_window->setCaption(mode==EDisplayMode::Image ? "[Nabla Engine] HTTP Asset Load Test Demo":"[Nabla Engine] HTTP Asset Load Test Demo - mesh (.ply)");
+		}
+
+		bool loadPlyFromUrl()
+		{
+			m_logger->log("Loading mesh from url %s", ILogger::ELL_INFO, PlyFileUrl.c_str());
+
+			CHttpDownloader::future_t<smart_refctd_ptr<IFile>> future;
+			m_downloader.downloadFile(future, PlyFileUrl);
+
+			smart_refctd_ptr<IFile> file;
+			if (auto lock = future.acquire(); lock && *lock)
+			{
+				file = *lock;
+			}
+
+			if (!file)
+			{
+				m_logger->log("Failed to download %s", ILogger::ELL_ERROR, PlyFileUrl.c_str());
+				return false;
+			}
+
+			const std::string fileName = file->getFileName().string();
+			IAssetLoader::SAssetLoadParams params = {};
+			params.logger = m_logger.get();
+
+			if (m_assetMgr->getAsset(file.get(), fileName, params).getContents().empty())
+			{
+				m_logger->log("Failed to load the downloaded %s", ILogger::ELL_ERROR, PlyFileUrl.c_str());
+				return false;
+			}
+
+			return loadPly(fileName);
+		}
+
+		bool loadPly(const system::path& plyPath)
+		{
+			m_logger->log("Loading mesh %s", ILogger::ELL_INFO, plyPath.string().c_str());
+
+			IAssetLoader::SAssetLoadParams params = {};
+			params.logger = m_logger.get();
+			const auto bundle = m_assetMgr->getAsset(plyPath.string(),params);
+			if (bundle.getAssetType()!=IAsset::E_TYPE::ET_GEOMETRY)
+			{
+				m_logger->log("%s did not load as a polygon geometry", ILogger::ELL_ERROR, plyPath.string().c_str());
+				return false;
+			}
+			core::vector<smart_refctd_ptr<const ICPUPolygonGeometry>> geometries;
+			for (const auto& item : bundle.getContents())
+				if (auto polyGeo = IAsset::castDown<ICPUPolygonGeometry>(item); polyGeo)
+					geometries.push_back(polyGeo);
+			if (geometries.empty())
+			{
+				m_logger->log("%s has no polygon geometry", ILogger::ELL_ERROR, plyPath.string().c_str());
+				return false;
+			}
+
+			auto converter = CAssetConverter::create({.device=m_device.get()});
+			CAssetConverter::SInputs inputs = {};
+			inputs.logger = m_logger.get();
+			core::vector<CAssetConverter::patch_t<ICPUPolygonGeometry>> patches(geometries.size(),CSimpleDebugRenderer::DefaultPolygonGeometryPatch);
+			std::get<CAssetConverter::SInputs::asset_span_t<ICPUPolygonGeometry>>(inputs.assets) = {&geometries.front().get(),geometries.size()};
+			std::get<CAssetConverter::SInputs::patch_span_t<ICPUPolygonGeometry>>(inputs.patches) = patches;
+
+			auto reservation = converter->reserve(inputs);
+			if (!reservation)
+			{
+				m_logger->log("Failed to reserve GPU objects for the mesh!", ILogger::ELL_ERROR);
+				return false;
+			}
+
+			// upload on the graphics queue
+			{
+				auto queue = getGraphicsQueue();
+				auto semaphore = m_device->createSemaphore(0u);
+
+				constexpr auto MultiBuffering = 2;
+				std::array<smart_refctd_ptr<IGPUCommandBuffer>,MultiBuffering> commandBuffers = {};
+				{
+					auto pool = m_device->createCommandPool(queue->getFamilyIndex(),IGPUCommandPool::CREATE_FLAGS::RESET_COMMAND_BUFFER_BIT|IGPUCommandPool::CREATE_FLAGS::TRANSIENT_BIT);
+					pool->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY,commandBuffers,smart_refctd_ptr(m_logger));
+				}
+				commandBuffers.front()->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
+
+				std::array<IQueue::SSubmitInfo::SCommandBufferInfo,MultiBuffering> commandBufferSubmits;
+				for (auto i=0; i<MultiBuffering; i++)
+					commandBufferSubmits[i].cmdbuf = commandBuffers[i].get();
+
+				SIntendedSubmitInfo transfer = {};
+				transfer.queue = queue;
+				transfer.scratchCommandBuffers = commandBufferSubmits;
+				transfer.scratchSemaphore = {
+					.semaphore = semaphore.get(),
+					.value = 0u,
+					.stageMask = PIPELINE_STAGE_FLAGS::ALL_TRANSFER_BITS
+				};
+
+				CAssetConverter::SConvertParams convertParams = {};
+				convertParams.utilities = m_utils.get();
+				convertParams.transfer = &transfer;
+				auto future = reservation.convert(convertParams);
+				if (future.copy()!=IQueue::RESULT::SUCCESS)
+				{
+					m_logger->log("Failed to upload the mesh!", ILogger::ELL_ERROR);
+					return false;
+				}
+			}
+
+			const auto& converted = reservation.getGPUObjects<ICPUPolygonGeometry>();
+			if (!m_renderer->addGeometries({&converted.front().get(),converted.size()}))
+			{
+				m_logger->log("The renderer rejected the mesh!", ILogger::ELL_ERROR);
+				return false;
+			}
+
+			const hlsl::float32_t3x4 identity = hlsl::transpose(hlsl::float32_t4x3(
+				hlsl::float32_t3(1,0,0),
+				hlsl::float32_t3(0,1,0),
+				hlsl::float32_t3(0,0,1),
+				hlsl::float32_t3(0,0,0)
+			));
+
+			for (const auto& geo : m_renderer->getGeometries())
+			{
+				m_renderer->m_instances.push_back({.world=identity,.packedGeo=&geo});
+			}
+
+			//Camera framing
+			using aabb_t = hlsl::shapes::AABB<3,double>;
+			auto bound = aabb_t::create();
+
+			for (const auto& geom : converted)
+			{
+				bound = hlsl::shapes::util::union_(geom.value->getAABB<aabb_t>(),bound);
+			}
+
+			m_modelCenter = (bound.minVx+bound.maxVx)*0.5;
+			m_modelSize = hlsl::length(bound.getExtent());
+
+			if (!std::isfinite(m_modelSize) || !(m_modelSize>0.0))
+			{
+				m_logger->log("The bounds of %s are not usable, cannot frame it", ILogger::ELL_ERROR, plyPath.string().c_str());
+				return false;
+			}
+			return true;
+		}
+
+		// spins the mesh in front of a fixed camera
+		void recordMesh(IGPUCommandBuffer* cmdbuf, const float aspectRatio)
+		{
+			const double distance = m_modelSize;
+			const float angle = float(std::chrono::duration<double>(std::chrono::steady_clock::now()-m_startTime).count()*0.5);
+			const float s = std::sin(angle);
+			const float c = std::cos(angle);
+			const hlsl::float32_t3 center = hlsl::float32_t3(m_modelCenter);
+
+			// spin about Y, then tilt about X so flat meshes are never seen edge-on
+			constexpr float tilt = 0.4f;
+			const float st = std::sin(tilt);
+			const float ct = std::cos(tilt);
+			auto tiltX = [&](const hlsl::float32_t3 v)->hlsl::float32_t3 { return hlsl::float32_t3(v.x,ct*v.y-st*v.z,st*v.y+ct*v.z); };
+			const hlsl::float32_t3 spunX(c,0,-s), spunY(0,1,0), spunZ(s,0,c);
+
+			// rotate around the model's center, then push it in front of the camera
+			const hlsl::float32_t3 rotatedCenter = tiltX(hlsl::float32_t3(c*center.x+s*center.z,center.y,-s*center.x+c*center.z));
+			const hlsl::float32_t3 translation(-rotatedCenter.x,-rotatedCenter.y,-rotatedCenter.z-float(distance));
+			const hlsl::float32_t3x4 world = hlsl::transpose(hlsl::float32_t4x3(tiltX(spunX),tiltX(spunY),tiltX(spunZ),translation));
+			for (auto& instance : m_renderer->m_instances)
+				instance.world = world;
+
+			const hlsl::float32_t3x4 view = hlsl::transpose(hlsl::float32_t4x3(
+				hlsl::float32_t3(1,0,0),
+				hlsl::float32_t3(0,1,0),
+				hlsl::float32_t3(0,0,1),
+				hlsl::float32_t3(0,0,0)
+			));
+			// reverse Z
+			const auto projection = hlsl::math::thin_lens::rhPerspectiveFovMatrix<float>(1.2f,aspectRatio,float(m_modelSize*4.0),float(m_modelSize*0.01));
+			m_renderer->render(cmdbuf,CSimpleDebugRenderer::SViewParams(view,projection));
+		}
+
 		smart_refctd_ptr<ICPUImageView> getImageViewFromUrl(const std::string& imageUrl)
 		{
 			m_logger->log("Loading image from url %s", ILogger::ELL_INFO, imageUrl.c_str());
