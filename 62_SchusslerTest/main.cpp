@@ -325,11 +325,9 @@ public:
     cameraProjection = hlsl::math::thin_lens::lhPerspectiveFovMatrix<float>(
         core::radians(60.0f), float(WIN_W) / WIN_H, 0.01f, 5000.0f);
     const auto cameraEye = hlsl::float64_t3(0.0, 0.0, 6.0);
-    hlsl::math::quaternion<hlsl::float64_t> cameraOrientation;
-    if (!ext::cameras::CCameraMathUtilities::tryCreateQuaternionFromLookAt(
-            cameraEye, hlsl::float64_t3(0.0, 0.0, -1.0), hlsl::float64_t3(0.0, 1.0, 0.0), cameraOrientation))
-      return logFail("Could not initialize camera orientation!");
-    camera = core::make_smart_refctd_ptr<ext::cameras::CFPSCamera>(cameraEye, cameraOrientation);
+    camera = core::make_smart_refctd_ptr<ext::cameras::CFPSCamera>(cameraEye, hlsl::math::quaternion<hlsl::float64_t>::identity(), ext::cameras::SWorldFrame::yUpLeftHanded());
+    if (!camera->setLookAt(cameraEye, hlsl::float64_t3(0.0, 0.0, -1.0), hlsl::float64_t3(0.0, 1.0, 0.0)))
+        return logFail("Could not initialize camera orientation!");
   }
 
   void workLoopBody() override {
@@ -421,7 +419,7 @@ public:
     SPushConsts pc;
     pc.vertStage.VP = hlsl::math::linalg::promoted_mul(
         cameraProjection,
-        hlsl::float32_t3x4(camera->getGimbal().getViewMatrixLH()));
+        hlsl::float32_t3x4(camera->getGimbal().getViewMatrix()));
     pc.fragStage.campos = hlsl::float32_t4(hlsl::_static_cast<hlsl::float32_t3>(camera->getGimbal().getPosition()), 1.0f);
     pc.fragStage.testNum = currentTestNum;
     commandBuffer->pushConstants(

@@ -550,11 +550,9 @@ public:
 			);
 			m_cameraProjection = proj;
 			const auto cameraEye = hlsl::float64_t3(cameraPosition.x, cameraPosition.y, cameraPosition.z);
-			hlsl::math::quaternion<hlsl::float64_t> cameraOrientation;
-			if (!ext::cameras::CCameraMathUtilities::tryCreateQuaternionFromLookAt(
-					cameraEye, hlsl::float64_t3(0.0, 0.0, 0.0), hlsl::float64_t3(0.0, 1.0, 0.0), cameraOrientation))
+			m_camera = core::make_smart_refctd_ptr<ext::cameras::CFPSCamera>(cameraEye, hlsl::math::quaternion<hlsl::float64_t>::identity(), ext::cameras::SWorldFrame::yUpRightHanded());
+			if (!m_camera->setLookAt(cameraEye, hlsl::float64_t3(0.0, 0.0, 0.0), hlsl::float64_t3(0.0, 1.0, 0.0)))
 				return logFail("Could not initialize camera orientation!");
-			m_camera = core::make_smart_refctd_ptr<ext::cameras::CFPSCamera>(cameraEye, cameraOrientation);
 			// WASD moves, the mouse looks while the left button is held
 			{
 				using namespace ext::cameras;
@@ -629,7 +627,7 @@ public:
 		cmdbuf->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
 		cmdbuf->beginDebugMarker("RaytracingPipelineApp Frame");
 
-		const auto viewMatrix = hlsl::float32_t3x4(m_camera->getGimbal().getViewMatrixRH());
+		const auto viewMatrix = hlsl::float32_t3x4(m_camera->getGimbal().getViewMatrix());
 		const auto projectionMatrix = m_cameraProjection;
 		const auto viewProjectionMatrix = hlsl::math::linalg::promoted_mul(m_cameraProjection, viewMatrix);
 

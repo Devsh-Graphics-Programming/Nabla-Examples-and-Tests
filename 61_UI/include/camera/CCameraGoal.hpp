@@ -126,7 +126,7 @@ public:
     {
         SCameraRigPose pose = {};
         hlsl::float64_t appliedDistance = ICamera::DefaultMinTargetDistance;
-        if (!CCameraMathUtilities::tryBuildPoseFromOrbit(orbit, ICamera::DefaultMinTargetDistance, ICamera::DefaultMaxTargetDistance, pose, &appliedDistance))
+        if (!CCameraMathUtilities::tryBuildPoseFromOrbit(orbit, ICamera::DefaultMinTargetDistance, ICamera::DefaultMaxTargetDistance, SWorldFrame::yUpLeftHanded(), pose, &appliedDistance))
             return false;
 
         applyCanonicalTargetRelativeGoalFields(goal, orbit, pose, appliedDistance);
@@ -141,7 +141,7 @@ public:
         const SCameraPathLimits& limits = CCameraPathUtilities::makeDefaultPathLimits())
     {
         SCameraCanonicalPathState canonicalPathState = {};
-        if (!CCameraPathUtilities::tryBuildCanonicalPathState(targetPosition, pathState, limits, canonicalPathState))
+        if (!CCameraPathUtilities::tryBuildCanonicalPathState(targetPosition, pathState, limits, SWorldFrame::yUpLeftHanded(), canonicalPathState))
             return false;
 
         goal.hasTargetPosition = true;
@@ -185,6 +185,7 @@ public:
                 position,
                 ICamera::DefaultMinTargetDistance,
                 ICamera::DefaultMaxTargetDistance,
+                SWorldFrame::yUpLeftHanded(),
                 orbit))
         {
             return false;
@@ -216,6 +217,7 @@ public:
                     goal.position,
                     currentState.minDistance,
                     currentState.maxDistance,
+                    SWorldFrame::yUpLeftHanded(),
                     resolvedOrbit))
             {
                 return false;
