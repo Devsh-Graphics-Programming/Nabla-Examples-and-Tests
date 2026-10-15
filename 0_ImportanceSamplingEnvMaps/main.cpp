@@ -305,10 +305,9 @@ public:
 		const auto cameraPosition = hlsl::float64_t3(-0.0889001, 0.678913, -4.01774);
 		const auto cameraTarget = hlsl::float64_t3(1.80119, 0.515374, -0.410544);
 		cameraProjection = matrix4SIMD::buildProjectionMatrixPerspectiveFovLH(core::radians(60.0f), float(WIN_W) / WIN_H, 0.03125f, 200.0f);
-		hlsl::math::quaternion<hlsl::float64_t> cameraOrientation;
-		if (!ext::cameras::CCameraMathUtilities::tryCreateQuaternionFromLookAt(cameraPosition, cameraTarget, hlsl::float64_t3(0.0, 1.0, 0.0), cameraOrientation))
+		camera = core::make_smart_refctd_ptr<ext::cameras::CFPSCamera>(cameraPosition, hlsl::math::quaternion<hlsl::float64_t>::identity(), ext::cameras::SWorldFrame::yUpLeftHanded());
+		if (!camera->setLookAt(cameraPosition, cameraTarget, hlsl::float64_t3(0.0, 1.0, 0.0)))
 			return logFail("Could not initialize camera orientation!");
-		camera = core::make_smart_refctd_ptr<ext::cameras::CFPSCamera>(cameraPosition, cameraOrientation);
 
 		// WASD moves, the mouse looks while the left button is held
 		{
@@ -793,7 +792,7 @@ public:
 	void onAppTerminated_impl() override
 	{
 		const auto& lastCamPos = camera->getGimbal().getPosition();
-		const auto lastCamTarget = camera->getGimbal().getPosition() + camera->getGimbal().getForward();
+		const auto lastCamTarget = camera->getGimbal().getPosition() + camera->getBasis().forward;
 		std::cout << "Last camera position: (" << lastCamPos.x << ", " << lastCamPos.y << ", " << lastCamPos.z << ")" << std::endl;
 		std::cout << "Last camera target: (" << lastCamTarget.x << ", " << lastCamTarget.y << ", " << lastCamTarget.z << ")" << std::endl;
 	}
@@ -833,7 +832,7 @@ public:
 			camera->manipulate(controls);
 		}
 
-		const auto viewMatrix = hlsl::float32_t3x4(camera->getGimbal().getViewMatrixLH());
+		const auto viewMatrix = hlsl::float32_t3x4(camera->getGimbal().getViewMatrix());
 		const auto viewProjectionMatrix = hlsl::math::linalg::promoted_mul(cameraProjection, viewMatrix);
 
 		asset::SViewport viewport;

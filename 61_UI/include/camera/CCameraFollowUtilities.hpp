@@ -256,7 +256,7 @@ inline bool CCameraFollowUtilities::tryComputeFollowTargetLockMetrics(
     if (!CCameraMathUtilities::isFiniteScalar(targetDistance) || targetDistance <= SCameraToolingThresholds::TinyScalarEpsilon)
         return false;
 
-    const auto forward = cameraGimbal.getForward();
+    const auto forward = CCameraMathUtilities::basisFromOrientation(cameraGimbal.getOrientation(), ECameraHandedness::LeftHanded).forward;
     const auto forwardLength = hlsl::length(forward);
     if (!CCameraMathUtilities::isFiniteVec3(forward) || !CCameraMathUtilities::isFiniteScalar(forwardLength) || forwardLength <= SCameraToolingThresholds::TinyScalarEpsilon)
         return false;
@@ -284,7 +284,7 @@ inline bool CCameraFollowUtilities::tryBuildFollowPositionGoal(
         return CCameraGoalUtilities::buildCanonicalTargetRelativeGoalFromPosition(outGoal, targetPosition, position);
 
     outGoal.position = position;
-    return CCameraMathUtilities::tryCreateQuaternionFromLookAt(outGoal.position, targetPosition, preferredUp, outGoal.orientation) &&
+    return CCameraMathUtilities::tryCreateQuaternionFromLookAt(outGoal.position, targetPosition, preferredUp, camera->getFrame(), outGoal.orientation) &&
         CCameraGoalUtilities::isGoalFinite(outGoal);
 }
 
@@ -335,20 +335,20 @@ inline bool CCameraFollowUtilities::tryBuildFollowGoal(
 
         case ECameraFollowMode::LookAtTarget:
         {
-            return tryBuildFollowPositionGoal(camera, outGoal, targetPosition, capture.goal.position, targetGimbal.getUp());
+            return tryBuildFollowPositionGoal(camera, outGoal, targetPosition, capture.goal.position, targetGimbal.getBasis().up);
         }
 
         case ECameraFollowMode::KeepWorldOffset:
         {
             const auto position = targetPosition + config.offset;
-            return tryBuildFollowPositionGoal(camera, outGoal, targetPosition, position, targetGimbal.getUp());
+            return tryBuildFollowPositionGoal(camera, outGoal, targetPosition, position, targetGimbal.getBasis().up);
         }
 
         case ECameraFollowMode::KeepLocalOffset:
         {
             // the offset is stored in the target's frame, so it rotates with the target before it is applied
             const auto worldOffset = targetGimbal.getOrientation().transformVector(config.offset, true);
-            return tryBuildFollowPositionGoal(camera, outGoal, targetPosition, targetPosition + worldOffset, targetGimbal.getUp());
+            return tryBuildFollowPositionGoal(camera, outGoal, targetPosition, targetPosition + worldOffset, targetGimbal.getBasis().up);
         }
 
         default:

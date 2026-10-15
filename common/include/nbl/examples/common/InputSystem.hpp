@@ -37,12 +37,35 @@ class InputSystem : public core::IReferenceCounted
 					consumedCounter = events.size()>frontBufferCapacity ? events.size()-frontBufferCapacity:0ull;
 				}
 				typename ChannelType::range_t rng(events.begin() + consumedCounter, events.end());
+				
+				// remember the timestamp of the newest event we hand out
+				if (!rng.empty())
+					lastConsumedTimeStamp = (*(rng.end()-1)).timeStamp;
+				
 				processFunc(rng);
 				consumedCounter = events.size();
 			}
 
+			// Binds to `newChannel` and positions the reader right after the newest event that predates
+			// `lastConsumedTimeStamp`. A `consumedCounter` indexes ONE channel's stream and means nothing
+			// against another's, so the cursor is re-derived by time: the events which made the new device
+			// "more active" than the old one are newer than anything consumed so far and stay in, while the
+			// device's older backlog (which overlaps what was already consumed elsewhere) is skipped.
+			// Scan is bounded by the ring, so there's no `size - capacity` underflow on a young channel.
+			inline void rebind(core::smart_refctd_ptr<ChannelType>&& newChannel)
+			{
+				channel = std::move(newChannel);
+				auto events = channel->getEvents();
+				auto it = events.end();
+				while (it!=events.begin() && (*(it-1)).timeStamp>lastConsumedTimeStamp)
+					--it;
+				consumedCounter = events.size()-static_cast<uint64_t>(std::distance(it,events.end()));
+			}
+
 			core::smart_refctd_ptr<ChannelType> channel = nullptr;
 			uint64_t consumedCounter = 0ull;
+			// newest event handed to `consumeEvents` so far, the anchor `rebind` positions a new channel against
+			std::chrono::microseconds lastConsumedTimeStamp = {};
 		};
 		
 		InputSystem(system::logger_opt_smart_ptr&& logger) : m_logger(std::move(logger)) {}
@@ -90,8 +113,9 @@ class InputSystem : public core::IReferenceCounted
 			* and then keep a consumed counter together with a last consumed event from each channel.
 			* If there is considerable pause in events received by our current chosen channel or
 			* we can detect some other channel of the same "compatible class" is producing more events,
-			* Switch the channel choice, but prune away all events younger than the old default's consumption timestamp.
+			* Switch the channel choice, but prune away all events older than the old default's consumption timestamp.
 			* (Basically switch keyboards but dont try to process events older than the events you've processed from the old keyboard)
+			* The switching and the pruning is already done by `ChannelReader::rebind`, the multi-channel reader is not.
 			*/
 				
 			std::unique_lock lock(channels.lock);
@@ -172,12 +196,10 @@ class InputSystem : public core::IReferenceCounted
 			if (reader->channel==defaultChannel)
 				return;
 
-			reader->channel = defaultChannel;
-			// A `consumedCounter` indexes ONE channel's stream, it means nothing against another's.
-			// Re-derive it from the channel we're binding to and start at "now": no replay of that
-			// device's backlog (whose events predate what we already consumed from the old one), and
-			// no `size - capacity` underflow on a channel younger than the ring.
-			reader->consumedCounter = defaultChannel->getEvents().size();
+			// Consumers are expected to reject events older than they care about, so a fresh reader
+			// (anchor at zero) replays the whole ring and a device switch keeps the reader's own anchor,
+			// which means the events that triggered the switch are consumed instead of dropped.
+			reader->rebind(std::move(defaultChannel));
 		}
 
 		system::logger_opt_smart_ptr m_logger;

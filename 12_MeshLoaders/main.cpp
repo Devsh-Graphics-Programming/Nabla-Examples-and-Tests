@@ -195,7 +195,7 @@ class MeshLoadersApp final : public MonoWindowApplication, public BuiltinResourc
 						reloadModel();
 				}
 				// draw scene
-				float32_t3x4 viewMatrix = hlsl::float32_t3x4(camera->getGimbal().getViewMatrixRH());
+				float32_t3x4 viewMatrix = hlsl::float32_t3x4(camera->getGimbal().getViewMatrix());
 				float32_t4x4 viewProjMatrix = hlsl::math::linalg::promoted_mul(cameraProjection, viewMatrix);
 				m_renderer->render(cb,CSimpleDebugRenderer::SViewParams(viewMatrix,viewProjMatrix));
 #ifdef NBL_BUILD_DEBUG_DRAW
@@ -532,16 +532,9 @@ private:
 				const auto aspectRatio = float(m_window->getWidth()) / float(m_window->getHeight());
 				cameraProjection = hlsl::math::thin_lens::rhPerspectiveFovMatrix<float>(1.2f, aspectRatio, measure * 4.0, distance * measure * 0.1);
 				const auto cameraEye = hlsl::float64_t3(pos.x, pos.y, pos.z);
-				hlsl::math::quaternion<hlsl::float64_t> cameraOrientation;
-				if (!ext::cameras::CCameraMathUtilities::tryCreateQuaternionFromLookAt(
-						cameraEye,
-						hlsl::float64_t3(center.x, center.y, center.z),
-						hlsl::float64_t3(0.0, 1.0, 0.0),
-						cameraOrientation))
-				{
+				camera = core::make_smart_refctd_ptr<ext::cameras::CFPSCamera>(cameraEye, hlsl::math::quaternion<hlsl::float64_t>::identity(), ext::cameras::SWorldFrame::yUpRightHanded());
+				if (!camera->setLookAt(cameraEye, hlsl::float64_t3(center.x, center.y, center.z), hlsl::float64_t3(0.0, 1.0, 0.0)))
 					return logFail("Could not initialize camera orientation!");
-				}
-				camera = core::make_smart_refctd_ptr<ext::cameras::CFPSCamera>(cameraEye, cameraOrientation);
 				// the move rate follows the model's size, so a big model is not crossed one step at a time
 				{
 					using namespace ext::cameras;

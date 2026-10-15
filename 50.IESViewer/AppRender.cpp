@@ -184,19 +184,11 @@ IQueue::SSubmitInfo::SSemaphoreInfo IESViewer::renderFrame(const std::chrono::mi
             const float dist = length(pos);
             if (dist > maxRadius)
             {
-                const auto target = hlsl::_static_cast<hlsl::float32_t3>(camera->getGimbal().getPosition() + camera->getGimbal().getForward());
+                const auto target = hlsl::_static_cast<hlsl::float32_t3>(camera->getGimbal().getPosition() + camera->getBasis().forward);
                 const auto forward = target - pos;
                 pos = normalize(pos) * clampRadius;
                 const auto clampedEye = hlsl::float64_t3(pos.x, pos.y, pos.z);
-                hlsl::math::quaternion<hlsl::float64_t> clampedOrientation;
-                if (ext::cameras::CCameraMathUtilities::tryCreateQuaternionFromLookAt(
-                        clampedEye,
-                        hlsl::float64_t3((pos + forward).x, (pos + forward).y, (pos + forward).z),
-                        hlsl::float64_t3(0.0, 1.0, 0.0),
-                        clampedOrientation))
-                {
-                    camera = core::make_smart_refctd_ptr<ext::cameras::CFPSCamera>(clampedEye, clampedOrientation);
-                }
+                camera->setLookAt(clampedEye, hlsl::float64_t3((pos + forward).x, (pos + forward).y, (pos + forward).z), hlsl::float64_t3(0.0, 1.0, 0.0));
             }
         }
 
@@ -366,7 +358,7 @@ IQueue::SSubmitInfo::SSemaphoreInfo IESViewer::renderFrame(const std::chrono::mi
         cb->beginDebugMarker("IES::graphics 3D plot");
         cb->beginRenderPass(info3D, IGPUCommandBuffer::SUBPASS_CONTENTS::INLINE);
         {
-            const float32_t3x4 viewMatrix = hlsl::float32_t3x4(camera->getGimbal().getViewMatrixLH());
+            const float32_t3x4 viewMatrix = hlsl::float32_t3x4(camera->getGimbal().getViewMatrix());
             const float32_t4x4 viewProjMatrix = hlsl::math::linalg::promoted_mul(cameraProjection, viewMatrix);
             const auto viewParams = CSimpleIESRenderer::SViewParams(viewMatrix, viewProjMatrix);
             const auto iesParams = CSimpleIESRenderer::SIESParams({ .radius = m_plotRadius, .ds = m_descriptors[0u].get(), .texID = static_cast<uint16_t>(uiState.activeAssetIx), .mode = uiState.mode.sphere.value, .wireframe = uiState.wireframeEnabled });

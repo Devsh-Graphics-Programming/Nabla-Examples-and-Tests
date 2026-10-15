@@ -531,6 +531,7 @@ inline bool CCameraGoalSolver::buildPathControls(
             camera->getGimbal().getPosition(),
             target.position,
             pathLimits,
+            camera->getFrame(),
             currentStateOverride,
             target.hasPathState ? &target.pathState : nullptr,
             transition))
