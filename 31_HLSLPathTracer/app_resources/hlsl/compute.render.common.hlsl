@@ -20,6 +20,10 @@
 
 #include "render_common.hlsl"
 
+#include "nbl/builtin/hlsl/sampling/warpmap.hlsl"
+#include "nbl/builtin/hlsl/sampling/hierarchical_image.hlsl"
+#include "nbl/builtin/hlsl/sampling/uniform_spheres.hlsl"
+
 #if PATH_TRACER_USE_RWMC
 #include "nbl/builtin/hlsl/rwmc/CascadeAccumulator.hlsl"
 #include "render_rwmc_common.hlsl"
@@ -33,16 +37,21 @@
 [[vk::push_constant]] RenderPushConstants pc;
 #endif
 
-[[vk::combinedImageSampler]] [[vk::binding(0, 0)]] Texture2D<float3> envMap;
-[[vk::combinedImageSampler]] [[vk::binding(0, 0)]] SamplerState envSampler;
+[[vk::combinedImageSampler]] [[vk::binding(0, 0)]] Texture2DArray<float3> envMap;
+[[vk::combinedImageSampler]] [[vk::binding(0, 0)]] SamplerState envMapSampler;
 
 [[vk::combinedImageSampler]] [[vk::binding(1, 0)]] Texture2D<uint2> scramblebuf;
 [[vk::combinedImageSampler]] [[vk::binding(1, 0)]] SamplerState scrambleSampler;
 
-[[vk::image_format("rgba16f")]] [[vk::binding(2, 0)]] RWTexture2DArray<float32_t4> outImage;
+[[vk::combinedImageSampler]] [[vk::binding(2, 0)]] Texture2DArray<float> lumaMap;
+[[vk::combinedImageSampler]] [[vk::binding(2, 0)]] SamplerState lumaSampler;
+[[vk::combinedImageSampler]][[vk::binding(3, 0)]] Texture2DArray<float2> warpMap;
+[[vk::combinedImageSampler]] [[vk::binding(3, 0)]] SamplerState warpSampler;
+
+[[vk::image_format("rgba16f")]] [[vk::binding(4, 0)]] RWTexture2DArray<float32_t4> outImage;
 
 #if PATH_TRACER_USE_RWMC
-[[vk::image_format("rgba16f")]] [[vk::binding(3, 0)]] RWTexture2DArray<float32_t4> cascade;
+[[vk::image_format("rgba16f")]] [[vk::binding(5, 0)]] RWTexture2DArray<float32_t4> cascade;
 #endif
 
 #include "example_common.hlsl"

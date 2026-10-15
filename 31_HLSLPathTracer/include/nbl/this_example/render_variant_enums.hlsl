@@ -25,4 +25,15 @@ enum E_POLYGON_METHOD
 	EPM_COUNT
 };
 
+#ifndef __HLSL_VERSION
+enum E_ENV_METHOD : uint8_t
+#else
+enum E_ENV_METHOD
+#endif
+{
+	EEM_UNIFORM,
+	EEM_HIERARCHICAL_WARP,
+	EEM_WARPMAP,
+	EEM_COUNT
+};
 #endif

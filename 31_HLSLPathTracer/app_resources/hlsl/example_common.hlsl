@@ -8,9 +8,22 @@
 #include "nbl/builtin/hlsl/sampling/projected_spherical_triangle.hlsl"
 #include "nbl/builtin/hlsl/sampling/projected_spherical_rectangle.hlsl"
 #include "nbl/builtin/hlsl/sampling/spherical_rectangle.hlsl"
+#include "nbl/builtin/hlsl/sampling/spherical_mapping.hlsl"
+#include "nbl/builtin/hlsl/sampling/basic.hlsl"
+#include "nbl/builtin/hlsl/sampling/quotient_and_weight.hlsl"
+#include "nbl/this_example/render_variant_enums.hlsl"
 
 using namespace nbl;
 using namespace hlsl;
+
+RenderPushConstants getRenderPushConstants()
+{
+#if PATH_TRACER_USE_RWMC
+	return ::pc.renderPushConstants;
+#else
+	return ::pc;
+#endif
+}
 
 enum ProceduralShapeType : uint16_t
 {
@@ -84,6 +97,9 @@ struct Ray
     vector3_type origin;
     vector3_type direction;
 
+    vector3_type normalAtOrigin;
+    bool wasBSDFAtOrigin;
+
     // mutable
     scalar_type intersectionT;
     uint16_t depth;
@@ -100,7 +116,8 @@ struct Ray
     template<class Interaction>
     void setInteraction(NBL_CONST_REF_ARG(Interaction) interaction)
     {
-        // empty, only for projected solid angle
+        normalAtOrigin = interaction.getN();
+        wasBSDFAtOrigin = interaction.isMaterialBSDF();
     }
 
     void initPayload()
@@ -732,4 +749,254 @@ struct PTMaterialSystemCache
     IridescentDielectricBxDF iridescentDielectricBxDF;
 };
 
+template <typename T>
+struct LuminanceAccessor
+{
+  using value_type = T;
+
+  void get(NBL_REF_ARG(value_type) outVal, uint16_t2 pixelCoord, uint16_t level) NBL_CONST_MEMBER_FUNC
+  {
+      outVal = lumaMap.Load(int4(pixelCoord, 0, level));
+  }
+
+  float32_t getAvgLuma() NBL_CONST_MEMBER_FUNC
+  {
+    uint16_t2 dim = resolution();
+    const uint16_t lastMipLevel = _static_cast<uint16_t>(findMSB(_static_cast<uint32_t>(dim.y)));
+    if (dim.x == dim.y)
+    {
+        return lumaMap.Load(int4(0, 0, 0, lastMipLevel));
+    } else
+    {
+        return value_type(0.5) * (lumaMap.Load(int4(0, 0, 0, lastMipLevel)) + lumaMap.Load(int4(1, 0, 0, lastMipLevel)));
+    }
+  }
+
+  uint16_t2 resolution() NBL_CONST_MEMBER_FUNC
+  {
+    uint32_t width, height, elements, levels;
+    lumaMap.GetDimensions(0, width, height, elements, levels);
+    return uint16_t2(_static_cast<uint16_t>(width), _static_cast<uint16_t>(height));
+  }
+
+  template <typename ValT, typename IndexT 
+    NBL_FUNC_REQUIRES(
+      concepts::same_as<IndexT, float32_t2> && 
+      concepts::same_as<ValT, float32_t>
+    )
+  void get(IndexT index, NBL_REF_ARG(ValT) val) NBL_CONST_MEMBER_FUNC
+  {
+    val = lumaMap.SampleLevel(lumaSampler, float3(index, 0), 0);
+  }
+
+};
+
+template <typename T>
+struct WarpmapAccessor
+{
+  using scalar_type = T;
+
+  void gatherUv(float32_t2 uv, NBL_REF_ARG(matrix<float, 4, 2>) uvs) NBL_CONST_MEMBER_FUNC
+  {
+    const float32_t4 reds = warpMap.GatherRed(warpSampler, float3(uv, 0));
+    const float32_t4 greens = warpMap.GatherGreen(warpSampler, float3(uv, 0));
+
+    uvs = transpose(matrix<float, 2, 4>(
+      reds, 
+      greens
+    ));
+  }
+
+  uint16_t2 resolution() NBL_CONST_MEMBER_FUNC
+  {
+    uint32_t width, height, elements, levels;
+    warpMap.GetDimensions(0, width, height, elements, levels);
+    return uint16_t2(_static_cast<uint16_t>(width), _static_cast<uint16_t>(height));
+  }
+};
+
+template<typename T>
+struct EnvSamplerReturn
+{
+  using scalar_type = T;
+  using vector3_type = vector<scalar_type, 3>;
+  using spectral_type = vector3_type;
+
+  vector3_type direction;
+  sampling::quotient_and_weight<spectral_type, scalar_type> quotient_weight;
+};
+
+template<typename T, E_ENV_METHOD method>
+struct EnvSampler;
+
+template<typename ScalarT, typename DirSamplerT>
+EnvSamplerReturn<ScalarT> generateSample(NBL_CONST_REF_ARG(DirSamplerT) dirSampler, vector<ScalarT, 2> xi, NBL_CONST_REF_ARG(matrix<ScalarT, 3, 3>) tangentFrame)
+{
+    using dir_sampler_type = DirSamplerT;
+    using scalar_type = ScalarT;
+    using vector2_type = vector<ScalarT, 2>;
+    using vector3_type = vector<ScalarT, 3>;
+    using quotient_weight_type = sampling::quotient_and_weight<vector<scalar_type, 3>, scalar_type>;
+
+    EnvSamplerReturn<ScalarT> retval;
+
+    typename dir_sampler_type::cache_type cache;
+    retval.direction = dirSampler.generate(xi, cache);
+    scalar_type pdf = dirSampler.forwardPdf(xi, cache);
+    NBL_IF_CONSTEXPR(hlsl::concepts::same_as<DirSamplerT, sampling::UniformHemisphere<scalar_type> > || 
+      hlsl::concepts::same_as<DirSamplerT, sampling::ProjectedHemisphere<scalar_type> >)
+    {
+      retval.direction = hlsl::mul(tangentFrame, retval.direction);
+    }
+    vector2_type envMapUv = sampling::SphericalMapping<scalar_type>::generateInverse(retval.direction);
+    vector3_type radiance = envMap.SampleLevel(envMapSampler, vector3_type(envMapUv, 0), 0);
+    scalar_type weight = dirSampler.forwardWeight(xi, cache);
+    retval.quotient_weight = quotient_weight_type::create(radiance / pdf, weight);
+    return retval;
+}
+
+template<typename T>
+struct EnvSampler<T, EEM_UNIFORM>
+{
+    using this_type = EnvSampler<T, EEM_UNIFORM>;
+    using scalar_type = T;
+    using vector3_type = vector<scalar_type, 3>;
+    using vector2_type = vector<scalar_type, 2>;
+
+    using dir_sampler_type = sampling::ProjectedHemisphere<scalar_type>;
+
+    dir_sampler_type dirSampler;
+
+    static this_type create()
+    {
+        this_type sampler;
+        return sampler;
+    }
+
+    EnvSamplerReturn<scalar_type> generate(vector2_type xi, NBL_CONST_REF_ARG(matrix<scalar_type, 3, 3>) tangentFrame) NBL_CONST_MEMBER_FUNC
+    {
+        return generateSample<scalar_type, dir_sampler_type>(dirSampler, xi, tangentFrame);
+    }
+
+    scalar_type backwardWeight(vector3_type direction, vector3_type normal) NBL_CONST_MEMBER_FUNC
+    {
+        return dirSampler.backwardWeight(vector3_type(0, 0, hlsl::dot(normal, direction)));
+    }
+};
+
+template<typename T>
+struct EnvSampler<T, EEM_HIERARCHICAL_WARP>
+{
+    using this_type = EnvSampler<T, EEM_HIERARCHICAL_WARP>;
+    using scalar_type = T;
+    using vector3_type = vector<scalar_type, 3>;
+    using vector2_type = vector<scalar_type, 2>;
+
+    using dir_sampler_type = sampling::ComposedHierarchicalSampler<LuminanceAccessor<scalar_type>, sampling::SphericalMapping<scalar_type> >;
+
+    dir_sampler_type dirSampler;
+
+    static this_type create()
+    {
+        this_type sampler;
+        LuminanceAccessor<scalar_type> luminanceAccessor;
+        sampler.dirSampler = dir_sampler_type::create(luminanceAccessor);
+        return sampler;
+    }
+
+    EnvSamplerReturn<scalar_type> generate(vector2_type xi, NBL_CONST_REF_ARG(matrix<scalar_type, 3, 3>) tangentFrame) NBL_CONST_MEMBER_FUNC
+    {
+        return generateSample<scalar_type, dir_sampler_type>(dirSampler, xi, tangentFrame);
+    }
+
+    scalar_type backwardWeight(vector3_type direction, vector3_type normal) NBL_CONST_MEMBER_FUNC
+    {
+        return dirSampler.backwardWeight(direction);
+    }
+};
+
+template<typename T>
+struct EnvSampler<T, EEM_WARPMAP>
+{
+    using this_type = EnvSampler<T, EEM_WARPMAP>;
+    using scalar_type = T;
+    using vector3_type = vector<scalar_type, 3>;
+    using vector2_type = vector<scalar_type, 2>;
+
+    using dir_sampler_type = sampling::WarpmapSampler<LuminanceAccessor<scalar_type>, WarpmapAccessor<scalar_type>, sampling::SphericalMapping<scalar_type> >;
+
+    dir_sampler_type dirSampler;
+
+    static this_type create()
+    {
+        this_type sampler;
+        LuminanceAccessor<scalar_type> luminanceAccessor;
+        WarpmapAccessor<scalar_type> warpmapAccessor;
+        sampler.dirSampler = dir_sampler_type::create(luminanceAccessor, warpmapAccessor);
+        return sampler;
+    }
+
+    EnvSamplerReturn<scalar_type> generate(vector2_type xi, NBL_CONST_REF_ARG(matrix<scalar_type, 3, 3>) tangentFrame) NBL_CONST_MEMBER_FUNC
+    {
+        return generateSample<scalar_type, dir_sampler_type>(dirSampler, xi, tangentFrame);
+    }
+
+    scalar_type backwardWeight(vector3_type direction, vector3_type normal) NBL_CONST_MEMBER_FUNC
+    {
+        return dirSampler.backwardWeight(direction);
+    }
+};
+
+template<typename T>
+struct PolyEnvSampler
+{
+    using scalar_type = T;
+    using this_type = PolyEnvSampler<T>;
+    using vector3_type = vector<scalar_type, 3>;
+    using vector2_type = vector<scalar_type, 2>;
+
+    EnvSampler<scalar_type, EEM_UNIFORM> uniformSampler;
+    EnvSampler<scalar_type, EEM_HIERARCHICAL_WARP> hierwarpSampler;
+    EnvSampler<scalar_type, EEM_WARPMAP> warpmapSampler;
+
+    E_ENV_METHOD method;
+
+    static this_type create(E_ENV_METHOD method)
+    {
+        this_type sampler;
+        sampler.uniformSampler = EnvSampler<scalar_type, EEM_UNIFORM>::create();
+        sampler.hierwarpSampler = EnvSampler<scalar_type, EEM_HIERARCHICAL_WARP>::create();
+        sampler.warpmapSampler = EnvSampler<scalar_type, EEM_WARPMAP>::create();
+        sampler.method = method;
+        return sampler;
+    }
+
+    EnvSamplerReturn<scalar_type> generate(vector2_type xi, NBL_CONST_REF_ARG(matrix<scalar_type, 3, 3>) tangentFrame) NBL_CONST_MEMBER_FUNC
+    {
+        if (method == EEM_UNIFORM)
+        {
+          return uniformSampler.generate(xi, tangentFrame);
+        } else if (method == EEM_HIERARCHICAL_WARP)
+        {
+          return hierwarpSampler.generate(xi, tangentFrame);
+        } else
+        {
+          return warpmapSampler.generate(xi, tangentFrame);
+        }
+    }
+
+    scalar_type backwardWeight(vector3_type direction, vector3_type normal) NBL_CONST_MEMBER_FUNC
+    {
+        if (method == EEM_UNIFORM)
+        {
+          return uniformSampler.backwardWeight(direction, normal);
+        } else if (method == EEM_HIERARCHICAL_WARP)
+        {
+          return hierwarpSampler.backwardWeight(direction, normal);
+        } else 
+        {
+          return warpmapSampler.backwardWeight(direction, normal);
+        }
+    }
+};
 #endif

@@ -33,24 +33,19 @@ using accumulator_type = rwmc::CascadeAccumulator<rwmc::DefaultCascades<float32_
 using accumulator_type = path_tracing::DefaultAccumulator<float32_t3>;
 #endif
 
+
+
+using env_direction_sampler_type = PolyEnvSampler<float32_t>;
+
 template<NEEPolygonMethod PPM>
 struct SVariantTypes
 {
 	using ray_type = Ray<payload_type, PPM>;
 	using raygen_type = path_tracing::BasicRayGenerator<ray_type>;
 	using intersector_type = Intersector<ray_type, scene_type, aniso_interaction>;
-	using nee_type = NextEventEstimator<scene_type, light_type, ray_type, sample_t, aniso_interaction, LIGHT_TYPE, PPM>;
+	using nee_type = NextEventEstimator<scene_type, light_type, ray_type, sample_t, env_direction_sampler_type, aniso_interaction, LIGHT_TYPE, PPM>;
 	using pathtracer_type = path_tracing::Unidirectional<randgen_type, ray_type, intersector_type, material_system_type, nee_type, accumulator_type, scene_type>;
 };
-
-RenderPushConstants getRenderPushConstants()
-{
-#if PATH_TRACER_USE_RWMC
-	return ::pc.renderPushConstants;
-#else
-	return ::pc;
-#endif
-}
 
 template<NEEPolygonMethod PPM>
 void tracePixel(NBL_REF_ARG(typename SVariantTypes<PPM>::pathtracer_type) pathtracer, uint32_t2 coords)
@@ -133,10 +128,14 @@ void runPersistent()
 	pathtracer.randGen.sequenceSamplesLog2 = renderPushConstants.sequenceSampleCountLog2;
 	pathtracer.randGen.pSampleBuffer = renderPushConstants.pSampleSequence;
 	pathtracer.nee.lights = lights;
+	pathtracer.nee.envSampler = env_direction_sampler_type::create(renderPushConstants.envMethod);
 	pathtracer.materialSystem.bxdfs = bxdfs;
 	pathtracer.bxdfWeightThreshold = 0.0001;
 	pathtracer.lumaContributionThreshold = hlsl::dot(colorspace::scRGBtoXYZ[1], colorspace::eotf::sRGB(hlsl::promote<spectral_t>(1.0 / 255.0)));
 	pathtracer.spectralTypeToLumaCoeffs = colorspace::scRGBtoXYZ[1];
+	LuminanceAccessor<float32_t> luminanceAccessor;
+	pathtracer.krivanekCoeff = renderPushConstants.useKrivanekCompensation ? (0.5 * numbers::inv_pi<float32_t>) : 0.0;
+	pathtracer.useNEE = renderPushConstants.useNEE;
 
 	[loop]
 	for (uint32_t wgBase = glsl::gl_WorkGroupID().x; wgBase < numWorkgroupsX * numWorkgroupsY; wgBase += glsl::gl_NumWorkGroups().x)
@@ -145,6 +144,7 @@ void runPersistent()
 		morton::code<true, 32, 2> mc;
 		mc.value = glsl::gl_LocalInvocationIndex().x;
 		const int32_t2 localCoords = _static_cast<int32_t2>(mc);
+  
 		tracePixel<PPM>(pathtracer, wgCoords * uint32_t2(RenderWorkgroupSizeSqrt, RenderWorkgroupSizeSqrt) + localCoords);
 	}
 }

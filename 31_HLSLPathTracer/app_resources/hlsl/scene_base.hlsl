@@ -22,6 +22,7 @@ struct SceneBase
     NBL_CONSTEXPR_STATIC_INLINE uint32_t SCENE_SPHERE_COUNT = 10u;
     NBL_CONSTEXPR_STATIC_INLINE uint32_t SCENE_LIGHT_COUNT = 1u;
     NBL_CONSTEXPR_STATIC_INLINE uint32_t SCENE_BXDF_COUNT = 10u;
+    NBL_CONSTEXPR_STATIC_INLINE scalar_type SCENE_RADIUS = 200; // For now we hardcoded this value
 
     static const Shape<scalar_type, PST_SPHERE> scene_spheres[SCENE_SPHERE_COUNT];
 
@@ -48,6 +49,8 @@ struct SceneBase
         bool canContinuePath() NBL_CONST_MEMBER_FUNC { return matID.id != material_id_type::INVALID_ID; }
     };
     using mat_light_id_type = MatLightID;
+
+    scalar_type getRadius() NBL_CONST_MEMBER_FUNC { return SCENE_RADIUS; }
 };
 
 const Shape<float, PST_SPHERE> SceneBase::scene_spheres[SCENE_SPHERE_COUNT] = {

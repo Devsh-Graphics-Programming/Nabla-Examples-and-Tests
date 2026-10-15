@@ -408,12 +408,13 @@ struct ShapeSampling<T, PST_RECTANGLE, PPM_APPROX_PROJECTED_SOLID_ANGLE>
 };
 
 // TODO: Lots of these should probably be taken from the Scene
-template<class Scene, class Light, typename Ray, class LightSample, class Aniso, ProceduralShapeType PST, NEEPolygonMethod PPM = PPM_APPROX_PROJECTED_SOLID_ANGLE>
+template<class Scene, class Light, typename Ray, class LightSample, class EnvSamplerT, class Aniso, ProceduralShapeType PST, NEEPolygonMethod PPM = PPM_APPROX_PROJECTED_SOLID_ANGLE>
 struct NextEventEstimator
 {
     using scalar_type = typename Ray::scalar_type;
     // TODO: take vector type from ray-type
     using vector3_type = vector<scalar_type, 3>;
+    using vector2_type = vector<scalar_type, 2>;
     using ray_type = Ray;
     using scene_type = Scene;
     using light_type = Light;
@@ -426,6 +427,8 @@ struct NextEventEstimator
     using tolerance_method_type = Tolerance<scalar_type>;
 
     using shape_type = Shape<scalar_type, PST>;
+
+    NBL_CONSTEXPR_STATIC_INLINE float32_t ENV_LIGHT_PDF = 0.5;
 
     struct SampleQuotientReturn
     {
@@ -466,17 +469,40 @@ struct NextEventEstimator
 
     scalar_type backwardWeight(NBL_CONST_REF_ARG(scene_type) scene, light_id_type lightID, NBL_CONST_REF_ARG(ray_type) ray)
     {
-        if (lightID.id == 0u)
-            return scalar_type(0.0);    // env light pdf=0
+        if (lightID.id == getEnvLightId().id)
+          return ENV_LIGHT_PDF * envSampler.backwardWeight(ray.direction, ray.normalAtOrigin);
         const light_type light = lights[0u];
         const shape_type shape = __getShape(light.objectID.id, scene);
         const shape_sampling_type sampling = shape_sampling_type::create(shape);
-        return sampling.template backwardWeight<ray_type>(ray) / scalar_type(scene_type::SCENE_LIGHT_COUNT);
+        return (scalar_type(1) - ENV_LIGHT_PDF) * sampling.template backwardWeight<ray_type>(ray) / scalar_type(scene_type::SCENE_LIGHT_COUNT);
     }
 
     template<class MaterialSystem>
     sample_quotient_return_type generateAndQuotientAndWeight(NBL_CONST_REF_ARG(scene_type) scene, NBL_CONST_REF_ARG(MaterialSystem) materialSystem, const vector3_type origin, NBL_CONST_REF_ARG(interaction_type) interaction, const vector3_type xi, NBL_CONST_REF_ARG(ray_type) ray)
     {
+        vector3_type sample_xi = xi;
+        sample_quotient_return_type retval;
+        scalar_type pdf, weight, newRayMaxT, NdotL;
+        const vector3_type N = interaction.getN();
+        sampling::PartitionRandVariable<scalar_type> partitionRandVariable;
+        scalar_type rcpChoiceProb;
+        partitionRandVariable.leftProb = ENV_LIGHT_PDF;
+        if (!partitionRandVariable(sample_xi.z, rcpChoiceProb))
+        {
+          EnvSamplerReturn<scalar_type> envSample = envSampler.generate(sample_xi.xy, interaction.getFromTangentSpace());
+
+          vector3_type direction = envSample.direction;
+
+          NdotL = nbl::hlsl::dot<vector3_type>(N, direction);
+          ray_dir_info_type rayL;
+          rayL.setDirection(direction);
+          retval.sample_ = sample_type::create(rayL,interaction.getT(),interaction.getB(),NdotL);
+          retval.quotient_weight = quotient_weight_type::create(envSample.quotient_weight.quotient() / ENV_LIGHT_PDF, ENV_LIGHT_PDF * envSample.quotient_weight.weight());
+          retval.newRayMaxT = 2 * scene.getRadius();
+
+          return retval;
+        }
+
         // light id 0 is reserved for env light
         // however, we start indexing light array without env light, so index 0 is first shape light
         // use constant indices because with variables, driver (at least nvidia) seemed to nuke the light array and propagated constants throughout the code
@@ -484,13 +510,10 @@ struct NextEventEstimator
         const light_type light = lights[0u];
         const shape_type shape = __getShape(light.objectID.id, scene);
 
-        sample_quotient_return_type retval;
-        scalar_type pdf, weight, newRayMaxT;
         const shape_sampling_type sampling = shape_sampling_type::create(shape);
-        const vector3_type sampleL = sampling.template generateAndPdfAndWeight<interaction_type>(pdf, weight, newRayMaxT, origin, interaction, xi);
+        const vector3_type sampleL = sampling.template generateAndPdfAndWeight<interaction_type>(pdf, weight, newRayMaxT, origin, interaction, sample_xi);
+        NdotL = nbl::hlsl::dot<vector3_type>(N, sampleL);
 
-        const vector3_type N = interaction.getN();
-        const scalar_type NdotL = nbl::hlsl::dot<vector3_type>(N, sampleL);
 
         // returned weight is for MIS weight only
         // normally, weight=inf indicates a point light
@@ -515,8 +538,8 @@ struct NextEventEstimator
             }
 
             newRayMaxT *= tolerance_method_type::getEnd(ray.depth);
-            pdf *= 1.0 / scalar_type(scene_type::SCENE_LIGHT_COUNT);
-            weight *= 1.0 / scalar_type(scene_type::SCENE_LIGHT_COUNT);
+            pdf *= (scalar_type(1) - ENV_LIGHT_PDF) / scalar_type(scene_type::SCENE_LIGHT_COUNT);
+            weight *= (scalar_type(1) - ENV_LIGHT_PDF) / scalar_type(scene_type::SCENE_LIGHT_COUNT);
             const spectral_type radiance = materialSystem.getEmission(light.emissiveMatID, interaction);
             spectral_type quo = radiance / pdf;
             retval.quotient_weight = quotient_weight_type::create(quo, weight);
@@ -542,10 +565,13 @@ struct NextEventEstimator
     spectral_type getEnvRadiance(NBL_CONST_REF_ARG(ray_type) ray)
     {
         // can also sample environment map using ray direction
-        return vector3_type(0.15, 0.21, 0.3);
+        vector2_type uv = sampling::SphericalMapping<scalar_type>::generateInverse(ray.direction);
+        vector3_type radiance = envMap.SampleLevel(envMapSampler, vector3_type(uv, 0), 0);
+        return radiance;
     }
 
     light_type lights[scene_type::SCENE_LIGHT_COUNT];
+    EnvSamplerT envSampler;
 };
 
 #endif

@@ -48,6 +48,25 @@ struct to_string_helper<E_POLYGON_METHOD>
 		}
 	}
 };
+
+template<>
+struct to_string_helper<E_ENV_METHOD>
+{
+	static inline std::string __call(const E_ENV_METHOD value)
+	{
+		switch (value)
+		{
+		case EEM_UNIFORM:
+			return "Uniform";
+		case EEM_HIERARCHICAL_WARP:
+			return "Hierarchical Warp";
+		case EEM_WARPMAP:
+			return "Warpmap";
+		default:
+			return "ERROR (method)";
+		}
+	}
+};
 }
 
 namespace nbl::this_example
@@ -89,6 +108,28 @@ inline const auto& getPolygonMethodNamePointers()
 	static const auto ptrs = [] {
 		std::array<const char*, EPM_COUNT> retval = {};
 		const auto& names = getPolygonMethodNameStorage();
+		for (size_t i = 0u; i < names.size(); ++i)
+			retval[i] = names[i].c_str();
+		return retval;
+	}();
+	return ptrs;
+}
+
+inline const auto& getEnvMethodNameStorage()
+{
+	static const auto names = std::to_array<std::string>({
+		system::to_string(EEM_UNIFORM),
+		system::to_string(EEM_HIERARCHICAL_WARP),
+		system::to_string(EEM_WARPMAP)
+	});
+	return names;
+}
+
+inline const auto& getEnvMethodNamePointers()
+{
+	static const auto ptrs = [] {
+		std::array<const char*, EEM_COUNT> retval = {};
+		const auto& names = getEnvMethodNameStorage();
 		for (size_t i = 0u; i < names.size(); ++i)
 			retval[i] = names[i].c_str();
 		return retval;

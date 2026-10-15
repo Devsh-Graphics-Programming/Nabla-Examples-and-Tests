@@ -1,6 +1,7 @@
 #ifndef _PATHTRACER_EXAMPLE_RENDER_COMMON_INCLUDED_
 #define _PATHTRACER_EXAMPLE_RENDER_COMMON_INCLUDED_
 #include "nbl/builtin/hlsl/cpp_compat.hlsl"
+#include "nbl/this_example/render_variant_enums.hlsl"
 
 using namespace nbl;
 using namespace hlsl;
@@ -36,7 +37,7 @@ struct RenderPushConstants
     }
 
     uint64_t pSampleSequence;
-	float32_t4x4 invMVP;
+    float32_t4x4 invMVP;
     float32_t3 lightX;
     float32_t3 lightY;
     float32_t lightZscale;
@@ -45,7 +46,10 @@ struct RenderPushConstants
     uint32_t sampleCount : MAX_SAMPLES_LOG2;
     uint32_t depth : MAX_DEPTH_LOG2;
     uint32_t sequenceSampleCountLog2 : 5;
-    uint32_t unused : 13;
+    uint32_t useKrivanekCompensation : 1;
+    uint32_t useNEE : 1;
+    E_ENV_METHOD envMethod : 2;
+    uint32_t unused : 9;
 };
 #undef MAX_SAMPLES_LOG2
 #undef MAX_DEPTH_LOG2
