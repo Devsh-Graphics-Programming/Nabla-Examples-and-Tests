@@ -306,6 +306,7 @@ inline bool CCameraFollowUtilities::tryBuildFollowGoal(
 
     const auto& targetGimbal = trackedTarget.getGimbal();
     const auto targetPosition = targetGimbal.getPosition();
+    const auto targetUp = targetGimbal.getOrientation().transformVector(hlsl::float64_t3(0.0, 1.0, 0.0), true);
 
     switch (config.mode)
     {
@@ -335,20 +336,20 @@ inline bool CCameraFollowUtilities::tryBuildFollowGoal(
 
         case ECameraFollowMode::LookAtTarget:
         {
-            return tryBuildFollowPositionGoal(camera, outGoal, targetPosition, capture.goal.position, targetGimbal.getBasis().up);
+            return tryBuildFollowPositionGoal(camera, outGoal, targetPosition, capture.goal.position, targetUp);
         }
 
         case ECameraFollowMode::KeepWorldOffset:
         {
             const auto position = targetPosition + config.offset;
-            return tryBuildFollowPositionGoal(camera, outGoal, targetPosition, position, targetGimbal.getBasis().up);
+            return tryBuildFollowPositionGoal(camera, outGoal, targetPosition, position, targetUp);
         }
 
         case ECameraFollowMode::KeepLocalOffset:
         {
             // the offset is stored in the target's frame, so it rotates with the target before it is applied
             const auto worldOffset = targetGimbal.getOrientation().transformVector(config.offset, true);
-            return tryBuildFollowPositionGoal(camera, outGoal, targetPosition, targetPosition + worldOffset, targetGimbal.getBasis().up);
+            return tryBuildFollowPositionGoal(camera, outGoal, targetPosition, targetPosition + worldOffset, targetUp);
         }
 
         default:
