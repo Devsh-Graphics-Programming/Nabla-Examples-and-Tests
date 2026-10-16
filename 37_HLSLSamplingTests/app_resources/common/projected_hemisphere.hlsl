@@ -3,6 +3,7 @@
 
 #include <nbl/builtin/hlsl/cpp_compat.hlsl>
 #include <nbl/builtin/hlsl/sampling/cos_weighted_spheres.hlsl>
+#include "jacobian_test.hlsl"
 
 using namespace nbl::hlsl;
 
@@ -22,6 +23,7 @@ struct ProjectedHemisphereTestResults
 	float32_t backwardWeight;
 	float32_t2 roundtripError;
 	float32_t jacobianProduct;
+	float32_t inverseJacobianPdf;
 };
 
 struct ProjectedHemisphereTestExecutor
@@ -43,7 +45,11 @@ struct ProjectedHemisphereTestExecutor
 			output.backwardWeight = sampler.backwardWeight(output.generated);
 		}
 		output.roundtripError = nbl::hlsl::abs(input.u - output.inverted);
-		output.jacobianProduct = (float32_t(1.0) / output.forwardPdf) * output.backwardPdf;
+		output.jacobianProduct = computeJacobianProduct<JACOBIAN_CONCENTRIC>(sampler, input.u, 1e-3f, 5.0f);
+		const float32_t phDiskR = nbl::hlsl::length((float32_t2)output.generated);
+		output.inverseJacobianPdf = phDiskR < 0.1f
+			? JACOBIAN_SKIP_CODOMAIN_SINGULARITY
+			: computeInverseJacobianPdf(sampler, output.generated, output.backwardPdf, 1e-3f, 1e30f);
 	}
 };
 

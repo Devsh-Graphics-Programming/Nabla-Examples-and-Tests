@@ -4,6 +4,7 @@
 #include <nbl/builtin/hlsl/cpp_compat.hlsl>
 #include <nbl/builtin/hlsl/sampling/spherical_rectangle.hlsl>
 #include <nbl/builtin/hlsl/shapes/spherical_rectangle.hlsl>
+#include "jacobian_test.hlsl"
 
 using namespace nbl::hlsl;
 
@@ -21,11 +22,17 @@ struct SphericalRectangleTestResults
 	float32_t3 generated;
 	float32_t2 surfaceOffset;
 	float32_t3 referenceDirection;
+	float32_t3 normalizedLocal;
+	float32_t  hitDist;
+	float32_t3 unnormalized;
+	float32_t  computedHitT;
+	float32_t3 normalizedLocalToWorld;
 	float32_t forwardPdf;
 	float32_t backwardPdf;
 	float32_t forwardWeight;
 	float32_t backwardWeight;
 	float32_t2 extents;
+	float32_t jacobianProduct;
 };
 
 struct SphericalRectangleTestExecutor
@@ -47,17 +54,36 @@ struct SphericalRectangleTestExecutor
 			output.forwardPdf = sampler.forwardPdf(input.u, cache);
 			output.forwardWeight = sampler.forwardWeight(input.u, cache);
 		}
+		float32_t2 absXY;
 		{
 			sampling::SphericalRectangle<float32_t>::cache_type cache;
-			output.surfaceOffset = sampler.generateSurfaceOffset(input.u, cache);
+			absXY = sampler.generateLocalBasisXY(input.u, cache);
+			output.surfaceOffset = absXY - float32_t2(sampler.r0.x, sampler.r0.y);
 		}
-		// reference direction: reconstruct local 3D point from surfaceOffset and normalize
 		{
-			const float32_t3 localPoint = sampler.r0 + float32_t3(output.surfaceOffset.x, output.surfaceOffset.y, float32_t(0));
-			output.referenceDirection = nbl::hlsl::normalize(localPoint);
+			const float32_t3 localDir = nbl::hlsl::normalize(float32_t3(absXY.x, absXY.y, sampler.r0.z));
+			output.referenceDirection = sampler.basis[0] * localDir[0]
+			                          + sampler.basis[1] * localDir[1]
+			                          + sampler.basis[2] * localDir[2];
 		}
+		{
+			sampling::SphericalRectangle<float32_t>::cache_type cache;
+			output.normalizedLocal = sampler.generateNormalizedLocal(input.u, cache, output.hitDist);
+			output.normalizedLocalToWorld = sampler.basis[0] * output.normalizedLocal[0]
+			                              + sampler.basis[1] * output.normalizedLocal[1]
+			                              + sampler.basis[2] * output.normalizedLocal[2];
+		}
+		{
+			sampling::SphericalRectangle<float32_t>::cache_type cache;
+			output.unnormalized = sampler.generateUnnormalized(input.u, cache);
+		}
+		output.computedHitT = sampler.computeHitT(output.generated);
+
 		output.backwardPdf = sampler.backwardPdf(output.generated);
 		output.backwardWeight = sampler.backwardWeight(output.generated);
+		// marginFactor = 3: __generate's sin_au denominator goes through catastrophic cancellation
+		// for u.x within ~2*eps of 0 or 1 (au near n*pi), leaving ~0.5% residual at factor 3.
+		output.jacobianProduct = computeJacobianProduct<JACOBIAN_PLAIN>(sampler, input.u, 1e-3f, 3.0f);
 	}
 };
 

@@ -35,18 +35,26 @@ smart_refctd_ptr<CSession> CScene::createSession(const CSession::SCreationParams
 	assert(all(params.cropOffsets+params.cropResolution<=renderSize));
 	assert(params.type!=CSession::sensor_type_e::Env || params.cropResolution==renderSize);
 
+	// path-depth bounds live in the dynamics push constant so the GUI can change them
+	const uint16_t maxPathDepth         = hlsl::clamp<uint16_t>(mutDefaults.maxPathDepth, 1, m_construction.renderer->getConstructionParams().getSequenceMaxPathDepth());
+	const uint16_t russianRouletteDepth = hlsl::clamp<uint16_t>(mutDefaults.russianRouletteDepth, 1, maxPathDepth);
+
 	// fill uniforms
 	{
-		const uint16_t maxPathDepth = hlsl::clamp<uint16_t>(mutDefaults.maxPathDepth,1,m_construction.renderer->getConstructionParams().getSequenceMaxPathDepth());
-		const uint16_t russianRouletteDepth = hlsl::clamp<uint16_t>(mutDefaults.russianRouletteDepth,1,maxPathDepth);
+		const float32_t3 boundsSize = abs(m_construction.sceneBound.getExtent() / static_cast<float>(numGridCells));
+		const float32_t hfov = hlsl::radians(65.f);	// TODO: get fov value from sensor/don't use fov because it won't work with ortho proj
+		const float32_t vfov = 2.f * hlsl::atan(hlsl::tan(hfov * 0.5f) * (float32_t(renderSize.y) / float32_t(renderSize.x)));
 		params.uniforms = {
-			.rcpPixelSize = promote<float32_t2>(1.f)/float32_t2(renderSize),
+			.rcpPixelSize = promote<float32_t2>(1.f) / float32_t2(renderSize),
 			.splatting = hlsl::rwmc::SPackedSplattingParameters::create(mutDefaults.cascadeLuminanceBase,mutDefaults.cascadeLuminanceStart,constants.cascadeCount),
 			.renderSize = renderSize,
-			.lastPathDepth = static_cast<uint16_t>(maxPathDepth-1),
-			.lastNoRussianRouletteDepth = static_cast<uint16_t>(russianRouletteDepth-1),
-			.lastCascadeIndex = static_cast<uint16_t>(constants.cascadeCount-1),
-			.hideEnvironment = mutDefaults.hideEnvironment
+			.lastCascadeIndex = static_cast<uint16_t>(constants.cascadeCount - 1),
+			.hideEnvironment = mutDefaults.hideEnvironment,
+			.restirParams = {
+				.sceneMinPos = m_construction.sceneBound.minVx,
+				.vfov = vfov,
+				.minCellSize = hlsl::max(boundsSize.x, hlsl::max(boundsSize.y, boundsSize.z))
+			}
 		};
 	}
 
@@ -54,11 +62,15 @@ smart_refctd_ptr<CSession> CScene::createSession(const CSession::SCreationParams
 	params.initDynamics = {
 		.invView = mutDefaults.absoluteTransform,
 		.ndcToRay = float32_t2x3(mutDefaults.raygen),
+		.prevViewProj = mutDefaults.viewProjection,
+		.prevCameraPos = hlsl::transpose(mutDefaults.absoluteTransform)[3],	// TODO: handle for ortho cam too
 		.nearClip = mutDefaults.nearClip,
 		.tMax = mutDefaults.farClip,
 		.minSPP = core::min(dynDefaults.samplesNeeded,16), // for later enhancement
 		.maxSPP = dynDefaults.samplesNeeded,
-		.orthoCam = mutDefaults.raygen.getType()==decltype(mutDefaults.raygen)::Type::Ortho
+		.orthoCam = mutDefaults.raygen.getType()==decltype(mutDefaults.raygen)::Type::Ortho,
+		.lastPathDepth = static_cast<uint16_t>(maxPathDepth-1),
+		.lastNoRussianRouletteDepth = static_cast<uint16_t>(russianRouletteDepth-1)
 	};
 
 	//

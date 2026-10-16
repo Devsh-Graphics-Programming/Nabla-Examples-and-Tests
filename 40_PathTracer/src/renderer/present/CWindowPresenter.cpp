@@ -68,8 +68,8 @@ smart_refctd_ptr<CWindowPresenter> CWindowPresenter::create(SCreationParams&& _p
 		if (hlsl::any(hlsl::less<uint16_t4>()(params.maxResolution.xxyy,params.minResolution.xyxy)))
 		{
 			params.logger.log(
-				"`CWindowPresenter::create` desktop resolution must allow for at least a %d x %d window!",
-				ILogger::ELL_ERROR,params.minResolution.x,params.minResolution.y
+				"`CWindowPresenter::create` desktop resolution must allow for at least a %d x %d window, only got %d x %d!",
+				ILogger::ELL_ERROR,params.minResolution.x,params.minResolution.y, params.maxResolution.x, params.maxResolution.y
 			);
 			return nullptr;
 		}
@@ -238,7 +238,7 @@ auto CWindowPresenter::acquire_impl(const CSession* session, ISemaphore::SWaitIn
 		winMgr->show(window);
 
 	m_pushConstants.layer = 0; // TODO: cubemaps and RWMC debug
-	m_pushConstants.imageIndex = uint8_t(SensorDSBindings::SampledImageIndex::RWMCCascades);
+	m_pushConstants.imageIndex = m_selectedImageIndex;
 
 	auto acquireResult = m_construction.surface->acquireNextImage();
 	*p_currentImageAcquire = {.semaphore=acquireResult.semaphore,.value=acquireResult.acquireCount};

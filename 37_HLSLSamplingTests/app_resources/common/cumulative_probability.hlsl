@@ -24,6 +24,7 @@ struct CumProbTestResults
 	float32_t backwardPdf;
 	float32_t forwardWeight;
 	float32_t backwardWeight;
+	float32_t jacobianProduct;
 };
 
 // Pre-computed CDF table for weights {1, 2, 3, 4}:
@@ -46,6 +47,7 @@ struct CumProbTestExecutor
 		output.backwardPdf = sampler.backwardPdf(output.generatedIndex);
 		output.forwardWeight = sampler.forwardWeight(input.u, cache);
 		output.backwardWeight = sampler.backwardWeight(output.generatedIndex);
+		output.jacobianProduct = (float32_t(1.0) / output.forwardPdf) * output.backwardPdf;
 	}
 };
 

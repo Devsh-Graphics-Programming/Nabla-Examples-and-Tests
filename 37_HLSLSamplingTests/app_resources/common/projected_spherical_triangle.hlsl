@@ -4,6 +4,7 @@
 #include <nbl/builtin/hlsl/cpp_compat.hlsl>
 #include <nbl/builtin/hlsl/sampling/projected_spherical_triangle.hlsl>
 #include <nbl/builtin/hlsl/shapes/spherical_triangle.hlsl>
+#include "jacobian_test.hlsl"
 
 using namespace nbl::hlsl;
 
@@ -21,11 +22,10 @@ struct ProjectedSphericalTriangleTestResults
 {
 	float32_t3 generated;
 	float32_t forwardPdf;
-	float32_t backwardPdf;
-	float32_t backwardPdfAtGenerated;
 	float32_t forwardWeight;
 	float32_t backwardWeight;
 	float32_t backwardWeightAtGenerated;
+	float32_t jacobianProduct;
 };
 
 struct ProjectedSphericalTriangleTestExecutor
@@ -43,15 +43,20 @@ struct ProjectedSphericalTriangleTestExecutor
 			output.forwardPdf = sampler.forwardPdf(input.u, cache);
 			output.forwardWeight = sampler.forwardWeight(input.u, cache);
 		}
-		// Test backwardPdf/Weight at the triangle centroid: a deterministic interior point computed
-		// from only basic arithmetic + sqrt (IEEE 754 exact), so CPU and GPU agree bit-exactly.
-		// Using output.generated would amplify generate's transcendental FP errors through
-		// generateInverse's acos, producing CPU/GPU divergence.
 		const float32_t3 center = nbl::hlsl::normalize(input.vertex0 + input.vertex1 + input.vertex2);
-		output.backwardPdf = sampler.backwardPdf(center);
 		output.backwardWeight = sampler.backwardWeight(center);
-		output.backwardPdfAtGenerated = sampler.backwardPdf(output.generated);
 		output.backwardWeightAtGenerated = sampler.backwardWeight(output.generated);
+		// Check the bilinear-warped (inner) u directly: for skinny triangles with a strongly biased
+		// receiver normal, outer u well inside [0,1] can still warp to inner u <~ 0.02 where Arvo's
+		// sqrt(sinZ) noise dominates. Pre-skip on the inner u instead of padding an outer marginFactor.
+		sampling::Bilinear<float32_t>::cache_type bc;
+		const float32_t2 innerU = sampler.bilinearPatch.generate(input.u, bc);
+		const float32_t innerMargin = 0.02f;
+		const bool innerNearEdge = innerU.x < innerMargin || innerU.x > (1.0f - innerMargin)
+		                        || innerU.y < innerMargin || innerU.y > (1.0f - innerMargin);
+		output.jacobianProduct = innerNearEdge
+			? JACOBIAN_SKIP_U_DOMAIN
+			: computeJacobianProduct<JACOBIAN_PLAIN>(sampler, input.u, 1e-3f, 1.0f);
 	}
 };
 

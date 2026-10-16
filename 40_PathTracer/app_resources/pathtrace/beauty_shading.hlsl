@@ -1,0 +1,634 @@
+#include "nbl/builtin/hlsl/rwmc/CascadeAccumulator.hlsl"
+#include "nbl/builtin/hlsl/bda/bda_accessor.hlsl"
+#include "nbl/builtin/hlsl/bda/legacy_bda_accessor.hlsl"
+
+#include "common.hlsl"
+#include "next_event_estimator.hlsl"
+
+[[vk::push_constant]] SBeautyPushConstants pc;
+
+NBL_CONSTEXPR_INLINE_NSPC_SCOPE_VAR float32_t NormalCompareThreshold = 0.8f;
+
+// Accumulation: every sample feeds BOTH outputs, a plain fp32 running mean written to the fp32
+// Beauty image (gBeauty) AND the fp16 RWMC cascade splat (gRWMCCascades). Both buffers are always
+// populated, so a single run yields the unbiased fp32 mean alongside the RWMC result with no build-
+// time toggle. Caveat: the RWMC 16-bit per-cascade sample count wraps past 65535 spp, so for very-
+// high-spp reference renders read gBeauty (fp32), the cascades are stale there.
+struct CCascades
+{
+    using layer_type        = float16_t3;
+    using sample_count_type = uint16_t;
+    using weight_t          = float16_t;
+
+    inline uint16_t getLastCascade() { return gSensor.lastCascadeIndex; }
+
+    inline void clear()
+    {
+        for (uint16_t i = 0u; i <= getLastCascade(); ++i)
+            gRWMCCascades[__getCoord(i)] = uint32_t2(0, 0);
+    }
+
+    inline void addSampleIntoCascadeEntry(const layer_type _sample, const uint16_t lowerCascadeIndex, const weight_t lowerCascadeLevelWeight, const weight_t higherCascadeLevelWeight, const sample_count_type sampleCount)
+    {
+        const weight_t reciprocalSampleCount = weight_t(1) / weight_t(sampleCount);
+        uint16_t3      coord                 = __getCoord(lowerCascadeIndex);
+        __splatToLayer(coord, _sample * lowerCascadeLevelWeight, sampleCount, reciprocalSampleCount);
+        if (higherCascadeLevelWeight > weight_t(0))
+        {
+            coord.z++;
+            __splatToLayer(coord, _sample * higherCascadeLevelWeight, sampleCount, reciprocalSampleCount);
+        }
+    }
+
+    inline uint16_t3 __getCoord(const uint16_t cascadeIx)
+    {
+        uint16_t3 coord = _static_cast<uint16_t3>(spirv::LaunchIdKHR);
+        coord.z         = coord.z * uint16_t(6) + cascadeIx;
+        return coord;
+    }
+
+    inline void __splatToLayer(const uint16_t3 coord, const layer_type weightedSample, const sample_count_type sampleCount, const weight_t reciprocalSampleCount)
+    {
+        uint16_t4 data = uint16_t4(0, 0, 0, 0);
+        if (sampleCount > 1)
+            data = bit_cast<uint16_t4>(gRWMCCascades[coord]);
+        layer_type              value          = bit_cast<layer_type>(data.xyz);
+        const sample_count_type oldSampleCount = data.w;
+#if NBL_RWMC_FP32_REWEIGHT
+        float32_t3 v = float32_t3(value);
+        v += (float32_t3(weightedSample) - v * float32_t(sampleCount - oldSampleCount)) / float32_t(sampleCount);
+        value = layer_type(v);
+#else
+        value += (weightedSample - value * weight_t(sampleCount - oldSampleCount)) * reciprocalSampleCount;
+#endif
+        data                 = uint16_t4(bit_cast<uint16_t3>(value), sampleCount);
+        gRWMCCascades[coord] = bit_cast<uint32_t2>(data);
+    }
+};
+
+// TODO: duplicates beauty.hlsl and beauty_reservoir.hlsl, find some shared header to put
+struct[raypayload] SAnyHitRetval
+{
+    // before sending the ray by the caller
+    inline void init(const float32_t _xi, float32_t tMax = hlsl::numeric_limits<float32_t>::max)
+    {
+        xi   = _xi;
+        rayT = tMax;
+    }
+    // call in AnyHit instead of AcceptHit
+    inline void acceptHit(const float16_t _transparency)
+    {
+        // need to read the spec if an anyhit is possible that the last anyhit to run and accept a hit candidate for a ray is not the last one to
+        if (rayT > spirv::RayTmaxKHR)
+        {
+            rayT         = spirv::RayTmaxKHR;
+            transparency = _transparency;
+        }
+        // Note that `spirv::terminateRayKHR` is NOT the correct instruction to call (it terminates ray prematurely without considering anything else)
+    }
+    //
+
+    // opacity russian roulette requires this for Discrete Probability Sampling
+    float32_t xi : read(anyhit) : write(caller, anyhit);
+    // need to store the t value at which the anyhit was executed, so we know whether the current closest hit comes from a confirmed anyhit
+    float32_t rayT : read(caller, anyhit) : write(caller, anyhit);
+    // essentially the probability of transmission
+    float16_t transparency : read(caller) : write(anyhit);
+    // can use additional `float16` to store BxDF mixture weights or other things so they don't need recomputing/re-fetching during shading
+};
+
+// TODO: duplicates beauty.hlsl and beauty_reservoir.hlsl, find some shared header to put
+struct SClosestHitRetval
+{
+    static inline SClosestHitRetval create(NBL_REF_ARG(spirv::HitObjectEXT) hitObject)
+    {
+        SClosestHitRetval retval;
+        {
+            [[vk::ext_storage_class(spv::StorageClassHitObjectAttributeEXT)]] float32_t2 tmp;
+            spirv::hitObjectGetAttributesEXT(hitObject, tmp);
+            retval.barycentrics = tmp;
+        }
+        // Which method of barycentric interpolation is more precise? Pick your poison!
+#define POSITION_RECON_METHOD 1
+#if POSITION_RECON_METHOD != 0
+        // compute worldspace hit position
+        const float32_t3 vertices[3] = spirv::hitObjectGetIntersectionTriangleVertexPositionsEXT(hitObject);
+#if POSITION_RECON_METHOD != 2
+        // This way at least we stay within the triangle, and compiler can do CSE with the geometric normal calculation
+        const float32_t3 modelSpacePos = vertices[0] + (vertices[1] - vertices[0]) * retval.barycentrics[0] + (vertices[2] - vertices[0]) * retval.barycentrics[1];
+#else
+        // This way we get less catastrophic cancellation by adding and computing the edges, but can end up outside the triangle
+        const float32_t3 modelSpacePos = vertices[0] * (1.f - retval.barycentrics[0] - retval.barycentrics[1]) + vertices[1] * retval.barycentrics[0] + vertices[2] * retval.barycentrics[1];
+#endif
+        retval.hitPos = math::linalg::promoted_mul(hlsl::transpose(spirv::hitObjectGetObjectToWorldEXT(hitObject)), modelSpacePos);
+#else
+        // the way that raytracers have done this before SPV_KHR_ray_tracing_position_fetch
+        retval.hitPos = spirv::hitObjectGetWorldRayOriginEXT(hitObject) + spirv::hitObjectGetWorldRayDirectionEXT(hitObject) * spirv::hitObjectGetRayTMaxEXT(hitObject);
+#endif
+#undef POSITION_RECON_METHOD
+        retval.instancedGeometryID = spirv::hitObjectGetInstanceCustomIndexEXT(hitObject) + spirv::hitObjectGetGeometryIndexEXT(hitObject);
+        retval.primitiveID         = spirv::hitObjectGetPrimitiveIndexEXT(hitObject);
+        retval.geometricNormal     = reconstructGeometricNormal(hitObject);
+        return retval;
+    }
+
+    float32_t3 hitPos;
+    // to interpolate our vertex attributes
+    float32_t2 barycentrics;
+    // to get our material and geometry data back
+    uint32_t instancedGeometryID;
+    // to get particular Triangle's indices
+    uint32_t primitiveID;
+    //
+    float32_t3 geometricNormal;
+};
+
+// TODO: duplicates beauty.hlsl and beauty_reservoir.hlsl, find some shared header to put
+enum E_SBT_OFFSETS : uint16_t
+{
+    ESBTO_PATH,
+    ESBTO_NEE
+};
+
+uint32_t resolveEmitterID(const uint32_t instanceCustomIndex, const uint32_t geometryIndex)
+{
+    if (gScene.init.pInstancedGeometryToEmitter == 0)
+        return nbl::this_example::NonEmitterCustomIndex;
+    return vk::RawBufferLoad<uint32_t>(gScene.init.pInstancedGeometryToEmitter + uint64_t(instanceCustomIndex + geometryIndex) * 4ull);
+}
+
+SReservoir getReservoirs(NBL_REF_ARG(LegacyBdaAccessor<SReservoir>) reservoirBuf, uint32_t baseIndex, uint32_t sampleIndex)
+{
+    const uint32_t framePixelCount = uint32_t(gSensor.renderSize.x) * uint32_t(gSensor.renderSize.y);
+    const uint32_t index = baseIndex + sampleIndex * framePixelCount;
+    SReservoir reservoir;
+    if (index < framePixelCount * 2u)
+        reservoirBuf.get(index, reservoir);
+    return reservoir;
+}
+
+void setReservoirs(NBL_REF_ARG(LegacyBdaAccessor<SReservoir>) reservoirBuf, uint32_t baseIndex, uint32_t sampleIndex, NBL_REF_ARG(SReservoir) reservoir)
+{
+    const uint32_t framePixelCount = uint32_t(gSensor.renderSize.x) * uint32_t(gSensor.renderSize.y);
+    const uint32_t index = baseIndex + sampleIndex * framePixelCount;
+    if (index < framePixelCount * 2u)
+        reservoirBuf.set(index, reservoir);
+}
+
+float32_t evalTargetPdf(const spectral_t radiance)
+{
+    return hlsl::dot(radiance, hlsl::material_compiler3::backends::default_upt::LumaConversionCoeffs);
+}
+
+// Diagnostic-only NEE-proposal probe takeover
+#include "nee_proposal_probe.hlsl"
+
+// forwardNEE as a ray-tracing callable (see NBL_NEE_CALLABLE in next_event_estimator.hlsl).
+[shader("callable")] 
+void neeCallable(inout nbl::this_example::SNeeCallableData cd)
+{
+    using NEE = nbl::this_example::NextEventEstimator;
+
+    NEE::ray_dir_info_t V;
+    V.setDirection(cd.V);
+    NEE::isotropic_interaction_t interaction = NEE::isotropic_interaction_t::create(V, cd.shadingNormal, cd.throughput);
+
+    NEE::brdf_t::SCreationParams cParams;
+    cParams.A                 = 0.f;
+    const NEE::brdf_t diffuse = NEE::brdf_t::create(cParams);
+
+    NEE nee                     = NEE::create();
+    nee.prevDescentNeeEmitterID = cd.prevDescentNeeEmitterID;
+    nee.prevDescentNeePdf       = cd.prevDescentNeePdf;
+
+    const NEE::SForwardSample s = nee.forwardNEE(cd.hitPos, cd.shadingNormal, interaction, diffuse, cd.throughput, cd.randNEE, cd.randNEE2);
+
+    cd.pickedDir               = s.pickedDir;
+    cd.contribution            = s.contribution;
+    cd.pickedEmitterID         = s.pickedEmitterID;
+    cd.valid                   = s.valid ? 1u : 0u;
+    cd.prevDescentNeeEmitterID = nee.prevDescentNeeEmitterID;
+    cd.prevDescentNeePdf       = nee.prevDescentNeePdf;
+}
+
+[shader("callable")] 
+void emissionCallable(inout nbl::this_example::SEmissionCallableData ec)
+{
+    using NEE             = nbl::this_example::NextEventEstimator;
+    NEE nee               = NEE::create();
+    nee.prevShadingHitPos = ec.prevShadingHitPos;
+    nee.prevShadingNormal = ec.prevShadingNormal;
+    // Negative sentinel = same-emitter cache miss: run the backward selection-pdf climb here in the
+    // callable stage so its register / i-cache footprint stays out of raygen. >= 0 is the cached pdf.
+    const float32_t backPdf = (ec.emitterSelectBackPdf < 0.f) ? nee.__emitterSelectBackPdf(ec.emitterIdx) : ec.emitterSelectBackPdf;
+    ec.deweight             = (backPdf > 0.f) ? nee.__emissionDeweight(ec.emitterIdx, ec.currentHitPos, backPdf, ec.otherTechniqueHeuristic) : 1.f;
+}
+
+[shader("raygeneration")]
+void raygen()
+{
+    const uint16_t3 launchID = uint16_t3(spirv::LaunchIdKHR);
+    const SBeautyPushConstants::S16BitData unpacked16BitPC = pc.get16BitData();
+    const uint32_t linearIdx = uint32_t(launchID.y) * uint32_t(gSensor.renderSize.x) + uint32_t(launchID.x);
+
+    LegacyBdaAccessor<SReconnectionData> reconnDataPtr = LegacyBdaAccessor<SReconnectionData>::create(gSensor.pStorageBuffers[SensorUBOBufferAddresses::ReconnectionDataBuf]);
+    SReconnectionData rcData;
+    reconnDataPtr.get(linearIdx, rcData);
+
+    LegacyBdaAccessor<SReservoir> initialReservoirsPtr = LegacyBdaAccessor<SReservoir>::create(gSensor.pStorageBuffers[SensorUBOBufferAddresses::InitialReservoirsBuf]);
+    LegacyBdaAccessor<SReservoir> currentReservoirsPtr = LegacyBdaAccessor<SReservoir>::create(gSensor.pStorageBuffers[SensorUBOBufferAddresses::CurrentReservoirsBuf]);
+
+    SReservoir initialReservoir;
+    initialReservoirsPtr.get(linearIdx, initialReservoir);
+
+    // don't advance sample?
+    SPixelSamplingInfo samplingInfo = advanceSampleCount(launchID, 0u, uint16_t(pc.sensorDynamics.keepAccumulating), pc.sensorDynamics.maxSPP);
+    decltype(samplingInfo.randgen) randgen = samplingInfo.randgen;
+
+    const uint32_t sampleIndex = rcData.firstSample;
+    uint16_t sequenceProtoDim = PrimaryRayRandTripletsUsed;
+    float32_t3 cameraPos;
+
+    using namespace nbl::hlsl::bxdf;
+    using namespace nbl::hlsl::material_compiler3::backends::default_upt;
+    using bxdf_config_t           = BxDFConfig;
+    using isotropic_interaction_t = bxdf_config_t::isotropic_interaction_type;
+    using light_sample_t          = bxdf_config_t::sample_type;
+    using spectral_type           = bxdf_config_t::spectral_type;
+    using ray_dir_info_t          = light_sample_t::ray_dir_info_type;
+    using quotient_weight_type    = sampling::quotient_and_weight<spectral_type, float>;
+    using value_weight_type       = sampling::value_and_weight<spectral_type, float>;
+    // a little bit of persistent state
+    spirv::HitObjectEXT hitObject;
+    {
+        // fetch random variable from memory
+        const float32_t3 randVec = randgen(0u, sampleIndex);
+        // TODO: motion blur and lens DOF triplet
+
+        // get our NDC coordinates and ray
+        const float32_t2  pixelSizeNDC = promote<float32_t2>(2.f) / float32_t2(spirv::LaunchSizeKHR.xy);
+        const float32_t2  NDC          = float32_t2(launchID.xy) * pixelSizeNDC - promote<float32_t2>(1.f);
+        const SPrimaryRay primary      = genPrimaryRay(pc.sensorDynamics, pixelSizeNDC, NDC, float16_t2(randVec.xy));
+        const SRay        ray          = primary.ray;
+        cameraPos = ray.origin;
+
+        // TODO: possible SER point, sorting by ray direction
+        //spirv::reorderThreadWithHintEXT<uint32_t>(,);
+
+        [[vk::ext_storage_class(spv::StorageClassRayPayloadKHR)]] SAnyHitRetval payload;
+        const float tMax = pc.sensorDynamics.tMax;
+        payload.init(randVec.z, tMax);
+        spirv::hitObjectTraceRayEXT(hitObject, gTLASes[0], spv::RayFlagsMaskNone, 0xff, ESBTO_PATH, 0u, 0u, ray.origin, primary.tMin, ray.direction.getDirection(), tMax, payload);
+        // TODO: do something with the payload's reported transparency
+    }
+    // TODO: Possible SER point
+    const bool primaryMissed = spirv::hitObjectIsMissEXT(hitObject);
+    const float32_t3 primaryRayDir = spirv::hitObjectGetWorldRayDirectionEXT(hitObject);
+
+    SClosestHitRetval closestInfo = SClosestHitRetval::create(hitObject);
+
+    // get previous sample
+    const float32_t4 previousClip = hlsl::math::linalg::promoted_mul(pc.sensorDynamics.prevViewProj, closestInfo.hitPos);
+    const float32_t3 previousScreen = previousClip.xyz / previousClip.w;
+    const float32_t2 previousUV = previousScreen.xy * hlsl::promote<float32_t2>(0.5f) + hlsl::promote<float32_t2>(0.5f);
+    const uint32_t2 previousID = uint32_t2(hlsl::clamp(previousUV * float32_t2(gSensor.renderSize), hlsl::promote<float32_t2>(0.f), float32_t2(gSensor.renderSize.x - 1u, gSensor.renderSize.y - 1u)));
+    const uint32_t previousIdx = previousID.y * uint32_t(gSensor.renderSize.x) + previousID.x;
+
+    bool isPreviousValid = gSampleCount[launchID] > 0 && hlsl::all(previousUV > hlsl::promote<float32_t2>(0.0)) && hlsl::all(previousUV < hlsl::promote<float32_t2>(1.0));
+    LegacyBdaAccessor<SReservoir> previousReservoirsPtr = LegacyBdaAccessor<SReservoir>::create(gSensor.pStorageBuffers[SensorUBOBufferAddresses::PreviousReservoirsBuf]);
+
+    // temporal reuse
+    SReservoir temporalReservoir = getReservoirs(previousReservoirsPtr, previousIdx, 0u);
+    if (isPreviousValid)
+    {
+        const float32_t lenThreshold = 0.1f * gSensor.restirParams.minCellSize;
+        isPreviousValid &= hlsl::length(temporalReservoir.vPosition - rcData.preRcHitPosition) < lenThreshold && hlsl::dot(temporalReservoir.vNormal, rcData.preRcNormal) > NormalCompareThreshold;
+        float32_t viewDepth = hlsl::length(rcData.preRcHitPosition - cameraPos);
+        float32_t prevViewDepth = hlsl::length(rcData.preRcHitPosition - pc.sensorDynamics.prevCameraPos);
+        const float32_t3 randVec = randgen(sequenceProtoDim++, sampleIndex);
+        if (viewDepth / prevViewDepth < 0.98f && randVec.z < 0.15f)
+            isPreviousValid = false;
+    }
+
+    temporalReservoir.M = hlsl::min(temporalReservoir.M, uint16_t(30u));
+    if (!isPreviousValid || temporalReservoir.age > uint16_t(100u))
+        temporalReservoir.M = uint16_t(0u);
+
+    float32_t wSum = float32_t(temporalReservoir.M) * evalTargetPdf(temporalReservoir.radiance) * hlsl::max(0.f, temporalReservoir.weightF);
+    float32_t throughputCurr = evalTargetPdf(initialReservoir.radiance);
+    {
+        const float32_t3 randVec = randgen(sequenceProtoDim++, sampleIndex);
+        temporalReservoir.merge(initialReservoir, randVec.x, throughputCurr, wSum);
+    }
+    
+    float32_t throughputNew = evalTargetPdf(temporalReservoir.radiance);
+    temporalReservoir.updateFinalWeight(throughputNew, wSum);
+    temporalReservoir.M = hlsl::min(temporalReservoir.M, uint16_t(30u));
+    temporalReservoir.age += uint16_t(1u);
+
+    temporalReservoir.vPosition = initialReservoir.vPosition;
+    temporalReservoir.vNormal = initialReservoir.vNormal;
+    setReservoirs(currentReservoirsPtr, linearIdx, 0, temporalReservoir);
+
+    // spatial reuse
+    SReservoir spatialReservoir = getReservoirs(previousReservoirsPtr, previousIdx, 0u);
+    spatialReservoir.vPosition = rcData.preRcHitPosition;
+    spatialReservoir.vNormal = rcData.preRcNormal;
+
+    const float32_t cellSize = calculateCellSize(initialReservoir.vPosition, cameraPos, gSensor.renderSize, gSensor.restirParams);
+    const float32_t3 jitteredPos = rcData.preRcHitPosition + (randgen(sequenceProtoDim++, sampleIndex) * hlsl::promote<float32_t3>(2.0f) - hlsl::promote<float32_t3>(1.0f)) * hlsl::promote<float32_t3>(0.1f * cellSize);
+
+    int cellIdx = findCell(jitteredPos, rcData.preRcNormal, cellSize, gSensor.restirParams, gSensor.pStorageBuffers[SensorUBOBufferAddresses::CheckSumBuf]);
+    if (cellIdx > -1)
+    {
+        const uint32_t cellBaseIdx = vk::RawBufferLoad<uint32_t>(gSensor.pStorageBuffers[SensorUBOBufferAddresses::IndexBuf] + cellIdx * sizeof(uint32_t));
+        const uint32_t sampleCount = vk::RawBufferLoad<uint32_t>(gSensor.pStorageBuffers[SensorUBOBufferAddresses::CellCountersBuf] + cellIdx * sizeof(uint32_t));
+
+        spatialReservoir.M = hlsl::min(spatialReservoir.M, uint16_t(100u));
+        if (spatialReservoir.age > uint16_t(100u))
+            spatialReservoir.M = uint16_t(0u);
+
+        static const uint32_t maxSpatialIteration = 3u;
+
+        const uint32_t increment = (sampleCount + maxSpatialIteration - 1) / maxSpatialIteration;
+        const uint32_t baseOffset = hlsl::round(randgen(sequenceProtoDim++, sampleIndex).x * (increment - 1));
+
+        float32_t3 positionList[4];
+        float32_t3 normalList[4];
+        int MList[4];
+        uint32_t nReuse = 0;
+        positionList[nReuse] = rcData.preRcHitPosition;
+        normalList[nReuse] = rcData.preRcNormal;
+        MList[nReuse] = spatialReservoir.M;
+        nReuse++;
+
+        float32_t wSumS = float32_t(spatialReservoir.M) * evalTargetPdf(spatialReservoir.radiance) * hlsl::max(0.f, spatialReservoir.weightF);
+        bda::__ptr<uint32_t> _csptr = bda::__ptr<uint32_t>::create(gSensor.pStorageBuffers[SensorUBOBufferAddresses::CellStorageBuf]);
+        BdaAccessor<uint32_t> cellStoragePtr = BdaAccessor<uint32_t>::create(_csptr);
+
+        uint32_t reuseID = 0u;
+        NBL_UNROLL
+        for (uint32_t count = 0u; count < maxSpatialIteration; count++)
+        {
+            uint32_t sampleOffset = increment * count;
+
+            uint32_t neighborPixelIndex;
+            cellStoragePtr.get(cellBaseIdx + (baseOffset + sampleOffset) % sampleCount, neighborPixelIndex);
+            SReservoir neighborReservoir = getReservoirs(previousReservoirsPtr, neighborPixelIndex, (count + 1u) % 2);
+
+            if (neighborReservoir.M <= uint16_t(0u) || hlsl::dot(spatialReservoir.vNormal, neighborReservoir.vNormal) < NormalCompareThreshold)
+                continue;
+
+            float32_t targetPdf = evalTargetPdf(neighborReservoir.radiance);
+
+            float32_t3 offsetB = neighborReservoir.sPosition - neighborReservoir.vPosition;
+            float32_t3 offsetA = neighborReservoir.sPosition - spatialReservoir.vPosition;
+            // Discard back-face.
+            if (hlsl::dot(spatialReservoir.vNormal, offsetA) <= 0.f)
+                targetPdf = 0.f;
+
+            float32_t RB2 = hlsl::dot(offsetB, offsetB);
+            float32_t RA2 = hlsl::dot(offsetA, offsetA);
+            offsetB = hlsl::normalize(offsetB);
+            offsetA = hlsl::normalize(offsetA);
+            float32_t cosA = hlsl::dot(spatialReservoir.vNormal, offsetA);
+            float32_t cosB = hlsl::dot(neighborReservoir.vNormal, offsetB);
+            float32_t cosPhiA = -hlsl::dot(offsetA, neighborReservoir.sNormal);
+            float32_t cosPhiB = -hlsl::dot(offsetB, neighborReservoir.sNormal);
+            if (cosB <= 0.f || cosPhiB <= 0.f)
+                continue;
+            if (cosA <= 0.f || cosPhiA <= 0.f || RA2 <= 0.f || RB2 <= 0.f)
+                targetPdf = 0.f;
+            float32_t jacobi = hlsl::mix(hlsl::clamp(RB2 * cosPhiA / (RA2 * cosPhiB), 0.f, 10.f), 0.f, RA2 * cosPhiB <= 0.f);
+
+            targetPdf *= jacobi;
+
+            // TODO: start at 0 or numeric_limits::min?
+            const float32_t tMin = 0.001f;
+            const float32_t3 originMagnitude = hlsl::max(hlsl::abs(closestInfo.hitPos), hlsl::abs(spirv::hitObjectGetWorldRayOriginEXT(hitObject)));
+            // TODO: should probably also take `tMax` of found hit into account
+            const float32_t offsetMagnitude = hlsl::max(hlsl::max(hlsl::exp2(8.f), originMagnitude.x), hlsl::max(originMagnitude.y, originMagnitude.z)) * hlsl::exp2(-20.f);
+            const float32_t3 visRayOrigin = closestInfo.hitPos + closestInfo.geometricNormal * offsetMagnitude;
+            const float32_t3 newDir = neighborReservoir.sPosition - visRayOrigin;
+            const float32_t3 visRayDir = hlsl::normalize(newDir);
+            const float32_t tMax = 0.999f * hlsl::length(newDir);
+
+            const float32_t3 randVis = randgen(sequenceProtoDim, sampleIndex + count);
+
+            [[vk::ext_storage_class(spv::StorageClassRayPayloadKHR)]] SAnyHitRetval visibilityPayload;
+            visibilityPayload.init(randVis.z, tMax);
+            spirv::HitObjectEXT visibilityHit;
+            spirv::hitObjectTraceRayEXT(visibilityHit, gTLASes[0], 0u, 0xff, ESBTO_PATH, 0u, ESBTO_PATH, visRayOrigin, tMin, visRayDir, tMax, visibilityPayload);
+
+            // check if there is any hit between ray endpoints, i.e. tMax is length of endpoints and is visible if no hits
+            bool isVisible = spirv::hitObjectIsMissEXT(visibilityHit);
+            if (!isVisible)
+                targetPdf = 0.f;
+            bool updated = spatialReservoir.merge(neighborReservoir, randVis.x, targetPdf, wSumS);
+            if (updated)
+                reuseID = count;
+
+            positionList[nReuse] = neighborReservoir.vPosition;
+            normalList[nReuse] = neighborReservoir.vNormal;
+            MList[nReuse] = neighborReservoir.M;
+            nReuse++;
+        }
+
+        float32_t z = 0.f;
+        float32_t chosenWeight = 0.f;
+        float32_t totalWeight = 0.f;
+        for (uint32_t i = 0; i < nReuse; i++)
+        {
+            bool shouldTest = true;
+            bool isVisible = true;
+            float32_t3 dir = spatialReservoir.sPosition - positionList[i];
+            if (hlsl::dot(dir, normalList[i]) < 0.f)
+            {
+                shouldTest = false;
+                isVisible = false;
+            }
+            if (shouldTest)
+            {
+                const float32_t tMin = 0.001f;
+                const float32_t3 originMagnitude = hlsl::abs(positionList[i]);
+                const float32_t offsetMagnitude = hlsl::max(hlsl::max(hlsl::exp2(8.f), originMagnitude.x), hlsl::max(originMagnitude.y, originMagnitude.z)) * hlsl::exp2(-20.f);
+                const float32_t3 newRayOrigin = positionList[i] + normalList[i] * offsetMagnitude;
+                const float32_t3 newDir = spatialReservoir.sPosition - newRayOrigin;
+                const float32_t3 newRayDir = hlsl::normalize(newDir);
+                const float32_t tMax = 0.999f * hlsl::length(newDir);
+
+                const float32_t3 randVis = randgen(sequenceProtoDim, sampleIndex + i);
+
+                [[vk::ext_storage_class(spv::StorageClassRayPayloadKHR)]] SAnyHitRetval newPayload;
+                newPayload.init(randVis.z, tMax);
+                spirv::HitObjectEXT newHit;
+                spirv::hitObjectTraceRayEXT(newHit, gTLASes[0], 0u, 0xff, ESBTO_PATH, 0u, ESBTO_PATH, newRayOrigin, tMin, newRayDir, tMax, newPayload);
+                // check if there is any hit between ray endpoints, i.e. tMax is length of endpoints and is visible if no hits
+                isVisible = spirv::hitObjectIsMissEXT(newHit);
+            }
+            if (isVisible)
+                z += float32_t(MList[i]);
+            else if (i == 0)
+                break;
+        }
+
+        float32_t throughputNewS = evalTargetPdf(spatialReservoir.radiance);
+        float32_t weight = throughputNewS * z;
+        float32_t avgWeight = hlsl::mix(0.f, wSumS / weight, weight > 0.f);
+        spatialReservoir.M = hlsl::min(spatialReservoir.M, uint16_t(100u));
+        spatialReservoir.weightF = hlsl::min(avgWeight, 10.f);
+        spatialReservoir.age += uint16_t(1u);
+    }
+
+    setReservoirs(currentReservoirsPtr, linearIdx, 1, spatialReservoir);
+
+    float32_t3 finalDir = hlsl::normalize(spatialReservoir.sPosition - spatialReservoir.vPosition);
+    spectral_t finalLi = spatialReservoir.radiance * hlsl::promote<spectral_t>(spatialReservoir.weightF);
+
+    spectral_t color = spectral_t(0, 0, 0);
+
+    // TODO ReSTIR: we might need a better DI solution, original paper used ReSTIR DI
+    const uint32_t SampleCount = 1u;
+    const float32_t rcpSampleCount = 1.f / float32_t(SampleCount);
+    const uint32_t diEndSample = rcData.firstSample + SampleCount;
+    NBL_HLSL_LOOP
+    for (uint32_t diSampleIndex = rcData.firstSample; diSampleIndex != diEndSample; diSampleIndex++)
+    {
+        spirv::HitObjectEXT diHitObject;
+        {
+            // fetch random variable from memory
+            const float32_t3 randVec = randgen(0u, diSampleIndex);
+            // TODO: motion blur and lens DOF triplet
+
+            // get our NDC coordinates and ray
+            const float32_t2  pixelSizeNDC = promote<float32_t2>(2.f) / float32_t2(spirv::LaunchSizeKHR.xy);
+            const float32_t2  NDC          = float32_t2(launchID.xy) * pixelSizeNDC - promote<float32_t2>(1.f);
+            const SPrimaryRay primary      = genPrimaryRay(pc.sensorDynamics, pixelSizeNDC, NDC, float16_t2(randVec.xy));
+            const SRay        ray          = primary.ray;
+
+            [[vk::ext_storage_class(spv::StorageClassRayPayloadKHR)]] SAnyHitRetval payload;
+            const float tMax = pc.sensorDynamics.tMax;
+            payload.init(randVec.z, tMax);
+            spirv::hitObjectTraceRayEXT(diHitObject, gTLASes[0], spv::RayFlagsMaskNone, 0xff, ESBTO_PATH, 0u, 0u, ray.origin, primary.tMin, ray.direction.getDirection(), tMax, payload);
+            // TODO: do something with the payload's reported transparency
+        }
+
+        const bool primaryMissed = spirv::hitObjectIsMissEXT(hitObject);
+        const float32_t3 primaryRayDir = spirv::hitObjectGetWorldRayDirectionEXT(hitObject);
+
+        if (primaryMissed)
+        {
+            const SEnvSample _sample = nbl::this_example::NextEventEstimator::shadeEnvmap(primaryRayDir, 0.f);
+            color += spectral_t(_sample.color);
+            // deal with transparency and aovs?
+        }
+        else
+        {
+            SClosestHitRetval diClosestInfo = SClosestHitRetval::create(diHitObject);
+
+            nbl::this_example::NextEventEstimator neeEstimator = nbl::this_example::NextEventEstimator::create();
+            spectral_t throughput = spectral_t(1, 1, 1);
+
+            // TODO set up material properly
+            using brdf_t = reflection::SOrenNayar<bxdf_config_t>;
+            brdf_t::SCreationParams cParams;
+            cParams.A = 0.f;
+            const brdf_t diffuse = brdf_t::create(cParams);
+            const float32_t3 albedo = float32_t3(0.8, 0.7, 0.5);
+            {
+                float32_t otherTechniqueHeuristic = 0.f;
+
+                const uint32_t emitterIdx = resolveEmitterID(spirv::hitObjectGetInstanceCustomIndexEXT(diHitObject), spirv::hitObjectGetGeometryIndexEXT(diHitObject));
+                spectral_t emission = neeEstimator.shadeEmission(emitterIdx, diClosestInfo.hitPos, otherTechniqueHeuristic, throughput);
+                color += emission;
+            }
+            // perform NEE
+            if (gScene.init.pLightTreeLeaves != 0 && gScene.init.pEmitters != 0)
+            {
+                const float32_t3 randNEE  = randgen(sequenceProtoDim + uint16_t(1), diSampleIndex);
+                const float32_t3 randNEE2 = randgen(sequenceProtoDim + uint16_t(2), diSampleIndex);
+
+                float32_t3 shadingNormal = diClosestInfo.geometricNormal;
+                ray_dir_info_t V;
+                // minus because of transmission
+                V.setDirection(-spirv::hitObjectGetWorldRayDirectionEXT(diHitObject));
+                isotropic_interaction_t interaction = isotropic_interaction_t::create(V, shadingNormal, throughput);
+
+                const float32_t tMin = 0.f;
+                const float32_t3 originMagnitude = hlsl::max(hlsl::abs(diClosestInfo.hitPos), hlsl::abs(spirv::hitObjectGetWorldRayOriginEXT(diHitObject)));
+                const float offsetMagnitude = hlsl::max(hlsl::max(hlsl::exp2(8.f), originMagnitude.x), hlsl::max(originMagnitude.y, originMagnitude.z)) * hlsl::exp2(-20.f);
+                const float32_t3 newRayOrigin = diClosestInfo.hitPos + diClosestInfo.geometricNormal * offsetMagnitude;
+
+#if NBL_NEE_CALLABLE
+                // Route forwardNEE through the callable shader stage so its heavy register/i-cache
+                // footprint stays out of raygen. The payload spills to the RT stack across the call.
+                [[vk::ext_storage_class(spv::StorageClassCallableDataKHR)]] nbl::this_example::SNeeCallableData cd;
+                cd.hitPos                  = closestInfo.hitPos;
+                cd.shadingNormal           = shadingNormal;
+                cd.V                       = V.getDirection();
+                cd.throughput              = throughput;
+                cd.randNEE                 = randNEE;
+                cd.randNEE2                = randNEE2;
+                cd.prevDescentNeeEmitterID = neeEstimator.prevDescentNeeEmitterID;
+                cd.prevDescentNeePdf       = neeEstimator.prevDescentNeePdf;
+                spirv::executeCallable(0u, cd);
+                // Carry the estimator's same-emitter MIS cache back for the next bounce's shadeEmission.
+                neeEstimator.prevDescentNeeEmitterID = cd.prevDescentNeeEmitterID;
+                neeEstimator.prevDescentNeePdf       = cd.prevDescentNeePdf;
+                nbl::this_example::NextEventEstimator::SForwardSample nee;
+                nee.pickedDir       = cd.pickedDir;
+                nee.pickedEmitterID = cd.pickedEmitterID;
+                nee.contribution    = cd.contribution;
+                nee.valid           = cd.valid != 0u;
+#else
+                const nbl::this_example::NextEventEstimator::SForwardSample nee = neeEstimator.forwardNEE(diClosestInfo.hitPos, shadingNormal, interaction, diffuse, throughput, randNEE, randNEE2);
+#endif
+
+                if (nee.valid)
+                {
+                    [[vk::ext_storage_class(spv::StorageClassRayPayloadKHR)]] SAnyHitRetval shadowPayload;
+                    shadowPayload.init(randNEE.z, hlsl::numeric_limits<float32_t>::max);
+                    spirv::HitObjectEXT shadowHit;
+                    spirv::hitObjectTraceRayEXT(shadowHit, gTLASes[0], 0u, 0xff, ESBTO_PATH, 0u, ESBTO_PATH, newRayOrigin, tMin, nee.pickedDir, hlsl::numeric_limits<float32_t>::max, shadowPayload);
+                    const bool shadowHitsEmitter = !spirv::hitObjectIsMissEXT(shadowHit) && resolveEmitterID(spirv::hitObjectGetInstanceCustomIndexEXT(shadowHit), spirv::hitObjectGetGeometryIndexEXT(shadowHit)) == nee.pickedEmitterID;
+
+                    if (shadowHitsEmitter)
+                        color += nee.contribution;  // we only want illumination value, so don't apply diffuse reflectance
+                }
+            }
+        }
+    }
+    color *= rcpSampleCount;
+
+    // TODO ReSTIR: account for material roughness
+    {
+        using brdf_t = reflection::SOrenNayar<bxdf_config_t>;
+        brdf_t::SCreationParams cParams;
+        cParams.A = 0.f;
+        const brdf_t diffuse = brdf_t::create(cParams);
+
+        typename light_sample_t::ray_dir_info_type V;
+        V.setDirection(finalDir);
+        isotropic_interaction_t interaction = isotropic_interaction_t::create(V, rcData.preRcNormal, hlsl::material_compiler3::backends::default_upt::LumaConversionCoeffs);
+        typename light_sample_t::ray_dir_info_type L;
+        L.direction = -rcData.preRcVertexL;
+        light_sample_t _sample = light_sample_t::create(L, rcData.preRcNormal);
+
+        typename brdf_t::isocache_type cache;
+        quotient_weight_type final_quo = diffuse.quotientAndWeight(_sample, interaction, cache);
+        color += rcData.pathPreRcRadiance + rcData.pathPreRcThroughput * final_quo.quotient() * final_quo.weight() * finalLi;
+    }
+
+    const bool doClear = rcData.firstSample == 0;
+    rwmc::CascadeAccumulator<CCascades> colorAcc = rwmc::CascadeAccumulator<CCascades>::create(gSensor.splatting, doClear);
+    colorAcc.addSample(rcData.firstSample, accum_t(color));
+
+    {
+        const uint32_t endSample = samplingInfo.newSampleCount;
+        const uint32_t samplesThisFrame = endSample - rcData.firstSample;
+
+        spectral_t mean = (rcData.firstSample != 0u) ? gBeauty[launchID].rgb : spectral_t(0, 0, 0);
+        mean += (color - mean * float32_t(samplesThisFrame)) * rcData.rcpNewSampleCount;
+        gBeauty[launchID] = float32_t4(mean, 1.0);
+    }
+}
