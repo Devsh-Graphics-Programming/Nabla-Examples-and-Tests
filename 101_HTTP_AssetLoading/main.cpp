@@ -82,8 +82,8 @@ class HTTP_AssetLoading final : public SimpleWindowedApplication, public Builtin
 			if (!asset_base_t::onAppInitialized(std::move(system)))
 				return false;
 
-			//Need to set curl logger
-			m_downloader.setLogger(smart_refctd_ptr(m_logger));
+			// downloads run on their own thread, their callbacks fire from `m_downloader->update()` on this one
+			m_downloader = std::make_unique<CHttpDownloader>(smart_refctd_ptr(m_logger));
 
 			// Load FSTri Shader
 			ext::FullScreenTriangle::ProtoPipeline fsTriProtoPPln(m_assetMgr.get(), m_device.get(), m_logger.get());
@@ -255,71 +255,9 @@ class HTTP_AssetLoading final : public SimpleWindowedApplication, public Builtin
 			m_window->setCaption("[Nabla Engine] HTTP Asset Load Test Demo");
 
 			m_loadCWD = "..";
-			const auto cpuImgView = getImageViewFromUrl(ImageFileUrl);
-			if (!cpuImgView)
-				return logFail("Failed to load image \"%s\"!", ImageFileUrl.c_str());
 
-			smart_refctd_ptr<IGPUCommandBuffer> uploadCmdBuf;
-			if (!m_cmdPool->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY, { &uploadCmdBuf,1 }))
-				return logFail("Couldn't create Upload Command Buffer!");
-			uploadCmdBuf->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
-
-			smart_refctd_ptr<IGPUImageView> gpuView;
-			{
-				auto converter = CAssetConverter::create({.device=m_device.get()});
-				CAssetConverter::patch_t<ICPUImageView> patch(cpuImgView.get(),IImage::E_USAGE_FLAGS::EUF_SAMPLED_BIT);
-
-				// We don't want to generate mip-maps for these images (YET), to ensure that we must override the default callbacks.
-				struct SInputs final : CAssetConverter::SInputs
-				{
-					inline uint8_t getMipLevelCount(const size_t groupCopyID, const ICPUImage* image, const CAssetConverter::patch_t<asset::ICPUImage>& patch) const override
-					{
-						return image->getCreationParameters().mipLevels;
-					}
-					inline uint16_t needToRecomputeMips(const size_t groupCopyID, const ICPUImage* image, const CAssetConverter::patch_t<asset::ICPUImage>& patch) const override
-					{
-						return 0b0u;
-					}
-				} inputs = {};
-				std::get<CAssetConverter::SInputs::asset_span_t<ICPUImageView>>(inputs.assets) = { &cpuImgView.get(),1 };
-				std::get<CAssetConverter::SInputs::patch_span_t<ICPUImageView>>(inputs.patches) = { &patch,1 };
-				inputs.logger = m_logger.get();
-
-				auto reservation = converter->reserve(inputs);
-				gpuView = reservation.getGPUObjects<ICPUImageView>().front().value;
-				if (!gpuView)
-					return logFail("Failed to convert the image to a GPU image view!");
-				gpuView->getCreationParameters().image->setObjectDebugName(ImageFileUrl.c_str());
-
-				IQueue::SSubmitInfo::SCommandBufferInfo cmdbufInfo = {uploadCmdBuf.get()};
-				m_intendedSubmit.scratchCommandBuffers = {&cmdbufInfo,1};
-				CAssetConverter::SConvertParams params = {};
-				params.transfer = &m_intendedSubmit;
-				params.utilities = m_utils.get();
-				auto result = reservation.convert(params);
-				if (result.copy()!=IQueue::RESULT::SUCCESS)
-					return logFail("Failed to upload the image!");
-			}
-
-			for (auto& ds : m_descriptorSets)
-			{
-				IGPUDescriptorSet::SDescriptorInfo info = {};
-				info.desc = gpuView;
-				info.info.image.imageLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
-				const IGPUDescriptorSet::SWriteDescriptorSet writes[] = { {
-					.dstSet = ds.get(),
-					.binding = 0,
-					.arrayElement = 0,
-					.count = 1,
-					.info = &info
-				} };
-				m_device->updateDescriptorSets(writes, {});
-			}
-
-			const auto& imageParams = cpuImgView->getCreationParameters().image->getCreationParameters();
-			const float realLayers = core::max(imageParams.arrayLayers,imageParams.extent.depth);
-			m_pc.grid.x = ceil(sqrt(realLayers));
-			m_pc.grid.y = ceil(realLayers/float(m_pc.grid.x));
+			requestImage();
+			requestPly();
 
 			m_winMgr->show(m_window.get());
 
@@ -406,7 +344,9 @@ class HTTP_AssetLoading final : public SimpleWindowedApplication, public Builtin
 		cmdbuf->setScissor({&currentRenderArea,1});
 
 		{
-			const IGPUCommandBuffer::SClearColorValue clearValue = { .float32 = {1.f,0.f,1.f,1.f} };
+			IGPUCommandBuffer::SClearColorValue clearValue = { .float32 = {1.f,0.f,1.f,1.f} };
+			if (m_mode==EDisplayMode::Ply)
+				clearValue = { .float32 = {0.f,0.f,0.f,1.f} };
 			// reverse Z, the mesh pipelines use `GREATER`
 			const IGPUCommandBuffer::SClearDepthStencilValue depthValue = { .depth = 0.f };
 			const IGPUCommandBuffer::SRenderpassBeginInfo info = {
@@ -420,10 +360,14 @@ class HTTP_AssetLoading final : public SimpleWindowedApplication, public Builtin
 
 		if (m_mode==EDisplayMode::Image)
 		{
-			cmdbuf->bindGraphicsPipeline(m_pipeline.get());
-			cmdbuf->pushConstants(m_pipeline->getLayout(),hlsl::ShaderStage::ESS_FRAGMENT,0,sizeof(push_constants_t),&m_pc);
-			cmdbuf->bindDescriptorSets(nbl::asset::EPBP_GRAPHICS,m_pipeline->getLayout(),3,1,&ds);
-			ext::FullScreenTriangle::recordDrawCall(cmdbuf);
+			// the descriptor sets only get written once the image has downloaded, until then just clear
+			if (m_imageLoaded)
+			{
+				cmdbuf->bindGraphicsPipeline(m_pipeline.get());
+				cmdbuf->pushConstants(m_pipeline->getLayout(),hlsl::ShaderStage::ESS_FRAGMENT,0,sizeof(push_constants_t),&m_pc);
+				cmdbuf->bindDescriptorSets(nbl::asset::EPBP_GRAPHICS,m_pipeline->getLayout(),3,1,&ds);
+				ext::FullScreenTriangle::recordDrawCall(cmdbuf);
+			}
 		}
 		else
 		{
@@ -467,6 +411,9 @@ class HTTP_AssetLoading final : public SimpleWindowedApplication, public Builtin
 
 		inline void workLoopBody() override
 		{
+			//Check for stuff that's downloaded. Triggers callbacks
+			m_downloader->update();
+
 			processInputs();
 			render_and_present();
 		}
@@ -479,6 +426,8 @@ class HTTP_AssetLoading final : public SimpleWindowedApplication, public Builtin
 
 		inline bool onAppTerminated() override
 		{
+			m_downloader = nullptr;
+
 			if (m_device)
 			{
 				m_device->waitIdle();
@@ -498,6 +447,9 @@ class HTTP_AssetLoading final : public SimpleWindowedApplication, public Builtin
 		// draws the PLY
 		smart_refctd_ptr<CSimpleDebugRenderer> m_renderer;
 		EDisplayMode m_mode = EDisplayMode::Image;
+		// what the user last asked for, may still be downloading
+		EDisplayMode m_requestedMode = EDisplayMode::Image;
+		bool m_imageLoaded = false;
 		bool m_plyLoaded = false;
 		hlsl::float64_t3 m_modelCenter = hlsl::float64_t3(0.0);
 		double m_modelSize = 1.0;
@@ -506,7 +458,7 @@ class HTTP_AssetLoading final : public SimpleWindowedApplication, public Builtin
 		system::path m_loadCWD;
 		//
 
-		CHttpDownloader m_downloader;
+		std::unique_ptr<CHttpDownloader> m_downloader;
 
 		smart_refctd_ptr<IGPUGraphicsPipeline> m_pipeline;
 		// We can't use the same semaphore for acquire and present, because that would disable "Frames in Flight" by syncing previous present against next acquire.
@@ -527,44 +479,57 @@ class HTTP_AssetLoading final : public SimpleWindowedApplication, public Builtin
 
 	private:
 
-		void switchTo(const EDisplayMode mode)
+		void setMode(const EDisplayMode mode)
 		{
-			if (mode==m_mode)
-				return;
-
-			if (mode==EDisplayMode::Ply && !m_plyLoaded)
-			{
-				if (!loadPlyFromUrl())
-				{
-					m_logger->log("Could not show the PLY", ILogger::ELL_ERROR);
-					return;
-				}
-				m_plyLoaded = true;
-			}
-
 			m_mode = mode;
 			m_window->setCaption(mode==EDisplayMode::Image ? "[Nabla Engine] HTTP Asset Load Test Demo":"[Nabla Engine] HTTP Asset Load Test Demo - mesh (.ply)");
 		}
 
-		bool loadPlyFromUrl()
+		void switchTo(const EDisplayMode mode)
+		{
+			m_requestedMode = mode;
+			if (mode==m_mode)
+				return;
+
+			// the mesh is only downloaded in `onAppInitialized`, if it's still in flight `onPlyDownloaded` switches once it arrives, if it failed this stays on the image
+			if (mode==EDisplayMode::Ply && !m_plyLoaded)
+				return;
+
+			setMode(mode);
+		}
+
+		// only called from `onAppInitialized`
+		void requestPly()
 		{
 			m_logger->log("Loading mesh from url %s", ILogger::ELL_INFO, PlyFileUrl.c_str());
-
-			CHttpDownloader::future_t<smart_refctd_ptr<IFile>> future;
-			m_downloader.downloadFile(future, PlyFileUrl);
-
-			smart_refctd_ptr<IFile> file;
-			if (auto lock = future.acquire(); lock && *lock)
+			m_downloader->downloadFile(PlyFileUrl,[this](bool success, const std::vector<uint8_t>& data)->void
 			{
-				file = *lock;
-			}
+				onPlyDownloaded(success,data);
+			});
+		}
 
-			if (!file)
+		void onPlyDownloaded(const bool success, const std::vector<uint8_t>& data)
+		{
+			if (!success)
 			{
 				m_logger->log("Failed to download %s", ILogger::ELL_ERROR, PlyFileUrl.c_str());
-				return false;
+				return;
 			}
 
+			auto file = CHttpDownloader::createFile(path(PlyFileUrl).filename(),data);
+			if (!file || !loadPlyFromFile(std::move(file)))
+			{
+				m_logger->log("Could not show the PLY", ILogger::ELL_ERROR);
+				return;
+			}
+			m_plyLoaded = true;
+
+			if (m_requestedMode==EDisplayMode::Ply)
+				setMode(EDisplayMode::Ply);
+		}
+
+		bool loadPlyFromFile(smart_refctd_ptr<IFile> file)
+		{
 			const std::string fileName = file->getFileName().string();
 			IAssetLoader::SAssetLoadParams params = {};
 			params.logger = m_logger.get();
@@ -724,71 +689,159 @@ class HTTP_AssetLoading final : public SimpleWindowedApplication, public Builtin
 			m_renderer->render(cmdbuf,CSimpleDebugRenderer::SViewParams(view,projection));
 		}
 
-		smart_refctd_ptr<ICPUImageView> getImageViewFromUrl(const std::string& imageUrl)
+		// only called from `onAppInitialized`
+		void requestImage()
 		{
-			m_logger->log("Loading image from url %s", ILogger::ELL_INFO, imageUrl.c_str());
-
-			CHttpDownloader::future_t<smart_refctd_ptr<IFile>> future;
-
-			m_downloader.downloadFile(future, imageUrl);
-
-			// an empty lock means the request was cancelled, a null file means the download failed
-			if (auto lock = future.acquire(); lock && *lock)
+			m_logger->log("Loading image from url %s", ILogger::ELL_INFO, ImageFileUrl.c_str());
+			m_downloader->downloadFile(ImageFileUrl,[this](bool success, const std::vector<uint8_t>& data)->void
 			{
-				smart_refctd_ptr<IFile> file = *lock;
+				onImageDownloaded(success,data);
+			});
+		}
 
-				constexpr auto cachingFlags = static_cast<IAssetLoader::E_CACHING_FLAGS>(IAssetLoader::ECF_DONT_CACHE_REFERENCES & IAssetLoader::ECF_DONT_CACHE_TOP_LEVEL);
-				const IAssetLoader::SAssetLoadParams loadParams(0ull, nullptr, cachingFlags, IAssetLoader::ELPF_NONE, m_logger.get(), m_loadCWD);
-
-				auto bundle = m_assetMgr->getAsset(file.get(), file->getFileName().string(), loadParams);
-				auto contents = bundle.getContents();
-				if (contents.empty())
-				{
-					m_logger->log("Failed to load from url %s!", ILogger::ELL_ERROR, (m_loadCWD / imageUrl).c_str());
-					return nullptr;
-				}
-
-				const auto& asset = contents[0];
-				ICPUImageView::SCreationParams viewParams = {};
-				switch (asset->getAssetType())
-				{
-				case IAsset::ET_IMAGE:
-					{
-						auto image = smart_refctd_ptr_static_cast<ICPUImage>(asset);
-						const auto format = image->getCreationParameters().format;
-
-						viewParams =
-						{
-							.flags = ICPUImageView::E_CREATE_FLAGS::ECF_NONE,
-							.image = std::move(image),
-							.viewType = IImageView<ICPUImage>::E_TYPE::ET_2D_ARRAY,
-							.format = format,
-							.subresourceRange = {
-								.aspectMask = IImage::E_ASPECT_FLAGS::EAF_COLOR_BIT,
-								.baseMipLevel = 0u,
-								.levelCount = ICPUImageView::remaining_mip_levels,
-								.baseArrayLayer = 0u,
-								.layerCount = ICPUImageView::remaining_array_layers
-							}
-						};
-					} break;
-
-				case IAsset::ET_IMAGE_VIEW:
-					// loaders may produce 2D views (e.g. KTX), the shader samples a 2D array
-					viewParams = smart_refctd_ptr_static_cast<ICPUImageView>(asset)->getCreationParameters();
-					viewParams.viewType = IImageView<ICPUImage>::E_TYPE::ET_2D_ARRAY;
-					break;
-
-				default:
-					m_logger->log("Failed to load ICPUImage or ICPUImageView got some other Asset Type!", ILogger::ELL_ERROR);
-					return nullptr;
-				}
-
-				return ICPUImageView::create(std::move(viewParams));
+		void onImageDownloaded(const bool success, const std::vector<uint8_t>& data)
+		{
+			if (!success)
+			{
+				m_logger->log("Failed to download %s", ILogger::ELL_ERROR, ImageFileUrl.c_str());
+				return;
 			}
 
-			m_logger->log("Failed to download %s", ILogger::ELL_ERROR, imageUrl.c_str());
-			return nullptr;
+			auto file = CHttpDownloader::createFile(path(ImageFileUrl).filename(),data);
+			if (!file)
+			{
+				m_logger->log("Could not create a file for the downloaded %s", ILogger::ELL_ERROR, ImageFileUrl.c_str());
+				return;
+			}
+
+			const auto cpuImgView = getImageViewFromFile(std::move(file));
+			if (!cpuImgView || !uploadImage(cpuImgView.get()))
+			{
+				m_logger->log("Failed to load image \"%s\"!", ILogger::ELL_ERROR, ImageFileUrl.c_str());
+				return;
+			}
+			m_imageLoaded = true;
+		}
+
+		// converts + uploads the image and points the descriptor sets at it
+		bool uploadImage(ICPUImageView* const cpuImgView)
+		{
+			smart_refctd_ptr<IGPUCommandBuffer> uploadCmdBuf;
+			if (!m_cmdPool->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY, { &uploadCmdBuf,1 }))
+				return logFail("Couldn't create Upload Command Buffer!");
+			uploadCmdBuf->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
+
+			smart_refctd_ptr<IGPUImageView> gpuView;
+			{
+				auto converter = CAssetConverter::create({.device=m_device.get()});
+				CAssetConverter::patch_t<ICPUImageView> patch(cpuImgView,IImage::E_USAGE_FLAGS::EUF_SAMPLED_BIT);
+
+				// We don't want to generate mip-maps for these images (YET), to ensure that we must override the default callbacks.
+				struct SInputs final : CAssetConverter::SInputs
+				{
+					inline uint8_t getMipLevelCount(const size_t groupCopyID, const ICPUImage* image, const CAssetConverter::patch_t<asset::ICPUImage>& patch) const override
+					{
+						return image->getCreationParameters().mipLevels;
+					}
+					inline uint16_t needToRecomputeMips(const size_t groupCopyID, const ICPUImage* image, const CAssetConverter::patch_t<asset::ICPUImage>& patch) const override
+					{
+						return 0b0u;
+					}
+				} inputs = {};
+				ICPUImageView* const cpuImgViewPtr = cpuImgView;
+				std::get<CAssetConverter::SInputs::asset_span_t<ICPUImageView>>(inputs.assets) = { &cpuImgViewPtr,1 };
+				std::get<CAssetConverter::SInputs::patch_span_t<ICPUImageView>>(inputs.patches) = { &patch,1 };
+				inputs.logger = m_logger.get();
+
+				auto reservation = converter->reserve(inputs);
+				gpuView = reservation.getGPUObjects<ICPUImageView>().front().value;
+				if (!gpuView)
+					return logFail("Failed to convert the image to a GPU image view!");
+				gpuView->getCreationParameters().image->setObjectDebugName(ImageFileUrl.c_str());
+
+				IQueue::SSubmitInfo::SCommandBufferInfo cmdbufInfo = {uploadCmdBuf.get()};
+				m_intendedSubmit.scratchCommandBuffers = {&cmdbufInfo,1};
+				CAssetConverter::SConvertParams params = {};
+				params.transfer = &m_intendedSubmit;
+				params.utilities = m_utils.get();
+				auto result = reservation.convert(params);
+				if (result.copy()!=IQueue::RESULT::SUCCESS)
+					return logFail("Failed to upload the image!");
+			}
+
+			for (auto& ds : m_descriptorSets)
+			{
+				IGPUDescriptorSet::SDescriptorInfo info = {};
+				info.desc = gpuView;
+				info.info.image.imageLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
+				const IGPUDescriptorSet::SWriteDescriptorSet writes[] = { {
+					.dstSet = ds.get(),
+					.binding = 0,
+					.arrayElement = 0,
+					.count = 1,
+					.info = &info
+				} };
+				m_device->updateDescriptorSets(writes, {});
+			}
+
+			const auto& imageParams = cpuImgView->getCreationParameters().image->getCreationParameters();
+			const float realLayers = core::max(imageParams.arrayLayers,imageParams.extent.depth);
+			m_pc.grid.x = ceil(sqrt(realLayers));
+			m_pc.grid.y = ceil(realLayers/float(m_pc.grid.x));
+
+			return true;
+		}
+
+		smart_refctd_ptr<ICPUImageView> getImageViewFromFile(smart_refctd_ptr<IFile> file)
+		{
+			constexpr auto cachingFlags = static_cast<IAssetLoader::E_CACHING_FLAGS>(IAssetLoader::ECF_DONT_CACHE_REFERENCES & IAssetLoader::ECF_DONT_CACHE_TOP_LEVEL);
+			const IAssetLoader::SAssetLoadParams loadParams(0ull, nullptr, cachingFlags, IAssetLoader::ELPF_NONE, m_logger.get(), m_loadCWD);
+
+			auto bundle = m_assetMgr->getAsset(file.get(), file->getFileName().string(), loadParams);
+			auto contents = bundle.getContents();
+			if (contents.empty())
+			{
+				m_logger->log("Failed to load the downloaded %s!", ILogger::ELL_ERROR, file->getFileName().string().c_str());
+				return nullptr;
+			}
+
+			const auto& asset = contents[0];
+			ICPUImageView::SCreationParams viewParams = {};
+			switch (asset->getAssetType())
+			{
+			case IAsset::ET_IMAGE:
+				{
+					auto image = smart_refctd_ptr_static_cast<ICPUImage>(asset);
+					const auto format = image->getCreationParameters().format;
+
+					viewParams =
+					{
+						.flags = ICPUImageView::E_CREATE_FLAGS::ECF_NONE,
+						.image = std::move(image),
+						.viewType = IImageView<ICPUImage>::E_TYPE::ET_2D_ARRAY,
+						.format = format,
+						.subresourceRange = {
+							.aspectMask = IImage::E_ASPECT_FLAGS::EAF_COLOR_BIT,
+							.baseMipLevel = 0u,
+							.levelCount = ICPUImageView::remaining_mip_levels,
+							.baseArrayLayer = 0u,
+							.layerCount = ICPUImageView::remaining_array_layers
+						}
+					};
+				} break;
+
+			case IAsset::ET_IMAGE_VIEW:
+				// loaders may produce 2D views (e.g. KTX), the shader samples a 2D array
+				viewParams = smart_refctd_ptr_static_cast<ICPUImageView>(asset)->getCreationParameters();
+				viewParams.viewType = IImageView<ICPUImage>::E_TYPE::ET_2D_ARRAY;
+				break;
+
+			default:
+				m_logger->log("Failed to load ICPUImage or ICPUImageView got some other Asset Type!", ILogger::ELL_ERROR);
+				return nullptr;
+			}
+
+			return ICPUImageView::create(std::move(viewParams));
 		}
 };
 
