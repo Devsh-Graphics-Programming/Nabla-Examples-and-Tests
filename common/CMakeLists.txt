@@ -74,6 +74,13 @@ endif()
     and NblExtExamplesAPIBuiltinsInclude targets)
 ]]
 
+find_package(glm CONFIG REQUIRED)
+find_package(gtl CONFIG REQUIRED)
+find_package(Imath CONFIG REQUIRED)
+find_package(blake3 CONFIG REQUIRED)
+find_package(Boost CONFIG REQUIRED)
+target_link_libraries(${LIB_NAME} PRIVATE glm::glm gtl::gtl Imath::Imath BLAKE3::blake3 boost::boost)
+
 add_subdirectory("src/nbl/examples" EXCLUDE_FROM_ALL)
 target_link_libraries(${LIB_NAME} PUBLIC NblExtExamplesAPISPIRV)
 target_link_libraries(${LIB_NAME} PUBLIC Nabla::ext::Cameras)
