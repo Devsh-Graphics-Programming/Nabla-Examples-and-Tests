@@ -63,8 +63,12 @@ class SimpleWindowedApplication : public virtual application_templates::BasicMul
 			
 		#ifdef _NBL_PLATFORM_WINDOWS_
 			m_winMgr = nbl::ui::IWindowManagerWin32::create();
+		#elif defined(_NBL_PLATFORM_LINUX_)
+			m_winMgr = nbl::ui::IWindowManagerXcb::create();
+			if (!m_winMgr)
+				m_logger->log("Could not connect to an X server, is DISPLAY set?",system::ILogger::ELL_ERROR);
 		#else
-			#error "Unimplemented!"
+			m_logger->log("No window manager is implemented for this platform yet!",system::ILogger::ELL_ERROR);
 		#endif
 			if (!m_winMgr)
 				return false;

@@ -50,7 +50,7 @@ class CSwapchainFramebuffersAndDepth final : public video::CDefaultSwapchainFram
 				m_params.subpasses[0],
 				IGPURenderpass::SCreationParams::SubpassesEnd
 			};
-			subpasses[0].depthStencilAttachment.render = { .attachmentIndex = 0,.layout = IGPUImage::LAYOUT::ATTACHMENT_OPTIMAL };
+			subpasses[0].depthStencilAttachment.render = { .attachmentIndex = 0,.layout = {.depth = IGPUImage::LAYOUT::ATTACHMENT_OPTIMAL} };
 			m_params.subpasses = subpasses;
 		}
 
@@ -66,7 +66,7 @@ class CSwapchainFramebuffersAndDepth final : public video::CDefaultSwapchainFram
 
 				const auto depthFormat = m_renderpass->getCreationParameters().depthStencilAttachments[0].format;
 				const auto& sharedParams = getSwapchain()->getCreationParameters().sharedParams;
-				auto image = device->createImage({ IImage::SCreationParams{
+				auto image = device->createImage(IGPUImage::SCreationParams{ IImage::SCreationParams{
 					.type = IGPUImage::ET_2D,
 					.samples = IGPUImage::ESCF_1_BIT,
 					.format = depthFormat,
@@ -78,7 +78,7 @@ class CSwapchainFramebuffersAndDepth final : public video::CDefaultSwapchainFram
 
 				device->allocate(image->getMemoryReqs(), { image.get() });
 
-				m_depthBuffer = device->createImageView({
+				m_depthBuffer = device->createImageView(IGPUImageView::SCreationParams{
 					.flags = IGPUImageView::ECF_NONE,
 					.subUsages = IGPUImage::EUF_RENDER_ATTACHMENT_BIT,
 					.image = std::move(image),

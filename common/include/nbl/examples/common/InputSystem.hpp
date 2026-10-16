@@ -78,6 +78,15 @@ class InputSystem : public core::IReferenceCounted
 		{
 			getDefault(m_keyboard,reader);
 		}
+		// Nonblocking variants, return false and leave the reader alone when no device is connected
+		bool tryGetDefaultMouse(ChannelReader<ui::IMouseEventChannel>* reader)
+		{
+			return tryGetDefault(m_mouse,reader);
+		}
+		bool tryGetDefaultKeyboard(ChannelReader<ui::IKeyboardEventChannel>* reader)
+		{
+			return tryGetDefault(m_keyboard,reader);
+		}
 		template<class ChannelType>
 		void add(Channels<ChannelType>& channels, core::smart_refctd_ptr<ChannelType>&& channel)
 		{
@@ -107,6 +116,35 @@ class InputSystem : public core::IReferenceCounted
 		template<class ChannelType>
 		void getDefault(Channels<ChannelType>& channels, ChannelReader<ChannelType>* reader)
 		{
+			std::unique_lock lock(channels.lock);
+			while (channels.channels.empty())
+			{
+				m_logger.log("Waiting For Input Device to be connected...",system::ILogger::ELL_INFO);
+				channels.added.wait(lock);
+			}
+			selectDefault(channels,reader);
+		}
+		// Checks for a device and binds the reader under the same lock, so a disconnect can't slip in between.
+		// The reader holds a reference, so a channel removed afterwards stays valid until the next selection.
+		template<class ChannelType>
+		bool tryGetDefault(Channels<ChannelType>& channels, ChannelReader<ChannelType>* reader)
+		{
+			std::unique_lock lock(channels.lock);
+			if (channels.channels.empty())
+				return false;
+			selectDefault(channels,reader);
+			return true;
+		}
+
+		system::logger_opt_smart_ptr m_logger;
+		Channels<ui::IMouseEventChannel> m_mouse;
+		Channels<ui::IKeyboardEventChannel> m_keyboard;
+
+	private:
+		// `channels.lock` must be held and `channels.channels` must not be empty
+		template<class ChannelType>
+		void selectDefault(Channels<ChannelType>& channels, ChannelReader<ChannelType>* reader)
+		{
 			/*
 			* TODO: Improve default device switching.
 			* For nice results, we should actually make a multi-channel reader,
@@ -117,13 +155,6 @@ class InputSystem : public core::IReferenceCounted
 			* (Basically switch keyboards but dont try to process events older than the events you've processed from the old keyboard)
 			* The switching and the pruning is already done by `ChannelReader::rebind`, the multi-channel reader is not.
 			*/
-				
-			std::unique_lock lock(channels.lock);
-			while (channels.channels.empty())
-			{
-				m_logger.log("Waiting For Input Device to be connected...",system::ILogger::ELL_INFO);
-				channels.added.wait(lock);
-			}
 
 			using namespace std::chrono;
 			constexpr long long DefaultChannelTimeoutInMicroSeconds = 100*1e3; // 100 mili-seconds
@@ -201,10 +232,6 @@ class InputSystem : public core::IReferenceCounted
 			// which means the events that triggered the switch are consumed instead of dropped.
 			reader->rebind(std::move(defaultChannel));
 		}
-
-		system::logger_opt_smart_ptr m_logger;
-		Channels<ui::IMouseEventChannel> m_mouse;
-		Channels<ui::IKeyboardEventChannel> m_keyboard;
 };
 
 }

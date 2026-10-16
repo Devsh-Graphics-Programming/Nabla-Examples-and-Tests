@@ -82,7 +82,11 @@ int main(int argc, char** argv)
 		}
 		else
 		{
+		#ifdef _NBL_PLATFORM_WINDOWS_
 			logger = make_smart_refctd_ptr<system::CColoredStdoutLoggerWin32>(LogLevel);
+		#else
+			logger = make_smart_refctd_ptr<system::CColoredStdoutLoggerANSI>(LogLevel);
+		#endif
 			logger->log("Could not create \"%s\\log.txt\" logging to STDOUT instead!\n",ILogger::ELL_ERROR,CWD.string().c_str());
 		}
 	}

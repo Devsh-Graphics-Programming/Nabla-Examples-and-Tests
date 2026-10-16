@@ -160,7 +160,12 @@ class HelloSwapchainApp final : public examples::SimpleWindowedApplication
 				auto window = m_winMgr->createWindow(std::move(params));
 				// uncomment for some nasty testing of swapchain creation!
 				//m_winMgr->minimize(window.get());
-				const_cast<std::remove_const_t<decltype(m_surface)>&>(m_surface) = CSmoothResizeSurface<CSwapchainResources>::create(CSurfaceVulkanWin32::create(smart_refctd_ptr(m_api),move_and_static_cast<IWindowWin32>(window)));
+			#ifdef _NBL_PLATFORM_WINDOWS_
+				auto surface = CSurfaceVulkanWin32::create(smart_refctd_ptr(m_api),move_and_static_cast<IWindowWin32>(window));
+			#elif defined(_NBL_PLATFORM_LINUX_)
+				auto surface = CSurfaceVulkanXcb::create(smart_refctd_ptr(m_api),move_and_static_cast<IWindowXcb>(window));
+			#endif
+				const_cast<std::remove_const_t<decltype(m_surface)>&>(m_surface) = CSmoothResizeSurface<CSwapchainResources>::create(std::move(surface));
 			}
 			return {{m_surface->getSurface()/*,EQF_NONE*/}};
 		}
