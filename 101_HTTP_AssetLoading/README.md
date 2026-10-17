@@ -3,7 +3,26 @@
 ## Usage
 
 Run the app. The demo uses libCURL (https://github.com/curl/curl) to download an image from Nabla's **media/color_space_test folder** and a mesh from **media/ply** folders respectively, and then display it on screen.
-The demo accepts 1 and 2 as user inputs to cycle between the image and the mesh. 
+
+### Assets
+Both assets come from the [Nabla-Example-And-Tests-Media](https://github.com/Devsh-Graphics-Programming/Nabla-Example-And-Tests-Media) repository, pinned to commit `f48f2afe20fee6b356be4c1d922393c751d4dfa7`:
+
+| Asset | URL |
+|-------|-----|
+| Image (`R8G8B8_1.jpg`) | `https://raw.githubusercontent.com/Devsh-Graphics-Programming/Nabla-Example-And-Tests-Media/f48f2afe20fee6b356be4c1d922393c751d4dfa7/color_space_test/R8G8B8_1.jpg` |
+| Mesh (`Spanner-ply.ply`) | `https://github.com/Devsh-Graphics-Programming/Nabla-Example-And-Tests-Media/raw/f48f2afe20fee6b356be4c1d922393c751d4dfa7/ply/Spanner-ply.ply` |
+
+The URLs are the `ImageFileUrl` and `PlyFileUrl` members at the top of `main.cpp`, so you can point the demo at other files by changing them. Both downloads start when the app initializes and run in parallel on the download thread. The window opens right away and shows the clear colour until the image arrives.
+
+### Controls
+Press a key to change what is displayed:
+
+| Key | Display |
+|-----|---------|
+| `1` | The downloaded image (the default view) |
+| `2` | The downloaded mesh, spinning on screen |
+
+If you press `2` while the mesh is still downloading, the view switches as soon as it has loaded. If a download fails, an error is logged and that view stays unavailable for the rest of the run, since the demo does not retry.
 
 ## API Description:
 Usage follows the following pattern:
