@@ -491,24 +491,22 @@ class HTTP_AssetLoading final : public SimpleWindowedApplication, public Builtin
 			if (mode==m_mode)
 				return;
 
-			// the mesh is only downloaded in `onAppInitialized`, if it's still in flight `onPlyDownloaded` switches once it arrives, if it failed this stays on the image
 			if (mode==EDisplayMode::Ply && !m_plyLoaded)
 				return;
 
 			setMode(mode);
 		}
 
-		// only called from `onAppInitialized`
 		void requestPly()
 		{
 			m_logger->log("Loading mesh from url %s", ILogger::ELL_INFO, PlyFileUrl.c_str());
-			m_downloader->downloadFile(PlyFileUrl,[this](bool success, const std::vector<uint8_t>& data)->void
+			m_downloader->downloadFile(PlyFileUrl,[this](bool success, std::vector<uint8_t>&& data)->void
 			{
-				onPlyDownloaded(success,data);
+				onPlyDownloaded(success, std::move(data));
 			});
 		}
 
-		void onPlyDownloaded(const bool success, const std::vector<uint8_t>& data)
+		void onPlyDownloaded(const bool success, std::vector<uint8_t>&& data)
 		{
 			if (!success)
 			{
@@ -516,7 +514,7 @@ class HTTP_AssetLoading final : public SimpleWindowedApplication, public Builtin
 				return;
 			}
 
-			auto file = CHttpDownloader::createFile(path(PlyFileUrl).filename(),data);
+			auto file = CHttpDownloader::createFile(path(PlyFileUrl).filename(), std::move(data));
 			if (!file || !loadPlyFromFile(std::move(file)))
 			{
 				m_logger->log("Could not show the PLY", ILogger::ELL_ERROR);
@@ -693,13 +691,13 @@ class HTTP_AssetLoading final : public SimpleWindowedApplication, public Builtin
 		void requestImage()
 		{
 			m_logger->log("Loading image from url %s", ILogger::ELL_INFO, ImageFileUrl.c_str());
-			m_downloader->downloadFile(ImageFileUrl,[this](bool success, const std::vector<uint8_t>& data)->void
+			m_downloader->downloadFile(ImageFileUrl,[this](bool success, std::vector<uint8_t>&& data)->void
 			{
-				onImageDownloaded(success,data);
+				onImageDownloaded(success, std::move(data));
 			});
 		}
 
-		void onImageDownloaded(const bool success, const std::vector<uint8_t>& data)
+		void onImageDownloaded(const bool success, std::vector<uint8_t>&& data)
 		{
 			if (!success)
 			{
@@ -707,7 +705,7 @@ class HTTP_AssetLoading final : public SimpleWindowedApplication, public Builtin
 				return;
 			}
 
-			auto file = CHttpDownloader::createFile(path(ImageFileUrl).filename(),data);
+			auto file = CHttpDownloader::createFile(path(ImageFileUrl).filename(), std::move(data));
 			if (!file)
 			{
 				m_logger->log("Could not create a file for the downloaded %s", ILogger::ELL_ERROR, ImageFileUrl.c_str());
