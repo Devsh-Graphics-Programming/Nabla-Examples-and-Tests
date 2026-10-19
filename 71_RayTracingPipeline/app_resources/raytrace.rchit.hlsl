@@ -8,7 +8,7 @@ using namespace nbl::hlsl;
 
 [[vk::push_constant]] SPushConstants pc;
 
-float3 calculateNormals(int primID, STriangleGeomInfo geom, float2 bary)
+float3 calculateNormals(uint32_t primID, STriangleGeomInfo geom, float2 bary)
 {
     const uint indexType = geom.indexType;
     const uint normalType = geom.normalType;
@@ -82,9 +82,9 @@ float3 calculateNormals(int primID, STriangleGeomInfo geom, float2 bary)
 [shader("closesthit")]
 void main(inout PrimaryPayload payload, in BuiltInTriangleIntersectionAttributes attribs)
 {
-    const int primID = spirv::PrimitiveId;
-    const int instanceCustomIndex = spirv::InstanceCustomIndexKHR;
-    const int geometryIndex = spirv::RayGeometryIndexKHR;
+    const uint32_t primID = spirv::PrimitiveId;
+    const uint32_t instanceCustomIndex = spirv::InstanceCustomIndexKHR;
+    const uint32_t geometryIndex = spirv::RayGeometryIndexKHR;
     const static uint64_t STriangleGeomInfoAlignment = nbl::hlsl::alignment_of_v<STriangleGeomInfo>;
     const STriangleGeomInfo geom = vk::BufferPointer<STriangleGeomInfo, STriangleGeomInfoAlignment>(pc.triangleGeomInfoBuffer + (instanceCustomIndex + geometryIndex) * sizeof(STriangleGeomInfo)).Get();
     const float32_t3 vertexNormal = calculateNormals(primID, geom, attribs.barycentrics);

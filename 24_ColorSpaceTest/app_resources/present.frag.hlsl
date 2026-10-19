@@ -6,6 +6,8 @@
 
 // vertex shader is provided by the fullScreenTriangle extension
 #include <nbl/builtin/hlsl/ext/FullScreenTriangle/SVertexAttributes.hlsl>
+#include <nbl/builtin/hlsl/type_traits.hlsl>
+using namespace nbl::hlsl;
 using namespace nbl::hlsl::ext::FullScreenTriangle;
 
 #include "push_constants.hlsl"
@@ -20,7 +22,7 @@ using namespace nbl::hlsl::ext::FullScreenTriangle;
 [[vk::location(0)]] float32_t4 main(SVertexAttributes vxAttr) : SV_Target0
 {
     const float32_t2 repeatCoord = vxAttr.uv*float32_t2(pc.grid);
-    const int32_t layer = int32_t(repeatCoord.y)*pc.grid.x+int32_t(repeatCoord.x);
+    const int32_t layer = _static_cast<int32_t>(repeatCoord.y)*_static_cast<int32_t>(pc.grid.x)+_static_cast<int32_t>(repeatCoord.x);
     float4 color = texture.Sample(samplerState,float32_t3(repeatCoord,layer));
     return color * color.a;
 }

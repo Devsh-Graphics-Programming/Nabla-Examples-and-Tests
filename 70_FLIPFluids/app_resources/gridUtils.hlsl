@@ -1,6 +1,10 @@
 #ifndef _FLIP_EXAMPLE_GRID_UTILS_HLSL
 #define _FLIP_EXAMPLE_GRID_UTILS_HLSL
 
+#include "nbl/builtin/hlsl/type_traits.hlsl"
+
+using namespace nbl::hlsl;
+
 // TODO: Use `float32_t3` for 3D quantities, don't waste the W coordinate
 struct SGridData
 {
@@ -35,7 +39,11 @@ int3 clampToGrid(int3 index, int4 gridSize)
 inline uint cellIdxToFlatIdx(int3 index, int4 gridSize)
 {
     uint3 idxClamp = clamp(index, (int3)0, gridSize.xyz - (int3)1);
-    return idxClamp.x + idxClamp.y * gridSize.x + idxClamp.z * gridSize.x * gridSize.y;
+    const uint3 gs = uint3(
+        _static_cast<uint>(gridSize.x),
+        _static_cast<uint>(gridSize.y),
+        _static_cast<uint>(gridSize.z));
+    return idxClamp.x + idxClamp.y * gs.x + idxClamp.z * gs.x * gs.y;
 }
 
 // INTEGER DIVISION AND MODULO ARE EXPENSIVE!!!
@@ -43,10 +51,17 @@ inline uint cellIdxToFlatIdx(int3 index, int4 gridSize)
 // TODO: when absolutely necessary, use a variant that uses 16-bit ints instead of 32-bit because maybe final compiler will use float32_t for the short-int math
 inline int3 flatIdxToCellIdx(uint id, int4 gridSize)
 {
-    int x = id % gridSize.x;
-    int y = id / gridSize.x % gridSize.y;
-    int z = id / (gridSize.x * gridSize.y);
-    return int3(x, y, z);
+    const uint3 gs = uint3(
+        _static_cast<uint>(gridSize.x),
+        _static_cast<uint>(gridSize.y),
+        _static_cast<uint>(gridSize.z));
+    uint x = id % gs.x;
+    uint y = id / gs.x % gs.y;
+    uint z = id / (gs.x * gs.y);
+    return int3(
+        _static_cast<int>(x),
+        _static_cast<int>(y),
+        _static_cast<int>(z));
 }
 
 inline float3 cellIdxToWorldPos(int3 index, SGridData data)
@@ -78,13 +93,17 @@ inline float3 gridPosToWorldPos(float3 position, SGridData data)
 // TODO: try to compile without it and see how many places we die
 int3 flatIdxToLocalGridID(uint idx, int size)
 {
-    uint a = size * size;
-    int3 b;
+    const uint s = _static_cast<uint>(size);
+    uint a = s * s;
+    uint3 b;
     b.z = idx / a;
     b.x = idx - b.z * a;
-    b.y = b.x / size;
-    b.x = b.x - b.y * size;
-    return b;
+    b.y = b.x / s;
+    b.x = b.x - b.y * s;
+    return int3(
+        _static_cast<int>(b.x),
+        _static_cast<int>(b.y),
+        _static_cast<int>(b.z));
 }
 #endif
 

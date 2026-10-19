@@ -45,7 +45,7 @@ struct Intersector
         objectID.id = object_handle_type::INVALID_ID;
 
         // prodedural shapes
-        NBL_UNROLL for (int i = 0; i < scene_type::SphereCount; i++)
+        NBL_UNROLL for (uint32_t i = 0; i < scene_type::SphereCount; i++)
         {
             float t = scene.getSphere(i).intersect(ray.origin, ray.direction);
 
@@ -58,7 +58,7 @@ struct Intersector
                 objectID.shapeType = PST_SPHERE;
             }
         }
-        NBL_UNROLL for (int i = 0; i < scene_type::TriangleCount; i++)
+        NBL_UNROLL for (uint32_t i = 0; i < scene_type::TriangleCount; i++)
         {
             float t = scene.getTriangle(i).intersect(ray.origin, ray.direction);
 
@@ -71,7 +71,7 @@ struct Intersector
                 objectID.shapeType = PST_TRIANGLE;
             }
         }
-        NBL_UNROLL for (int i = 0; i < scene_type::RectangleCount; i++)
+        NBL_UNROLL for (uint32_t i = 0; i < scene_type::RectangleCount; i++)
         {
             float t = scene.getRectangle(i).intersect(ray.origin, ray.direction);
 
@@ -99,7 +99,7 @@ struct Intersector
     static scalar_type traceShadowRay(NBL_CONST_REF_ARG(scene_type) scene, NBL_REF_ARG(ray_type) ray, NBL_CONST_REF_ARG(object_handle_type) objectID)
     {
         // prodedural shapes
-        NBL_UNROLL for (int i = 0; i < scene_type::SphereCount; i++)
+        NBL_UNROLL for (uint32_t i = 0; i < scene_type::SphereCount; i++)
         {
             float t = scene.getSphere(i).intersect(ray.origin, ray.direction);
             bool closerIntersection = t > 0.0 && t < ray.intersectionT;
@@ -107,7 +107,7 @@ struct Intersector
             if (closerIntersection)
                 return 0.0;
         }
-        NBL_UNROLL for (int i = 0; i < scene_type::TriangleCount; i++)
+        NBL_UNROLL for (uint32_t i = 0; i < scene_type::TriangleCount; i++)
         {
             float t = scene.getTriangle(i).intersect(ray.origin, ray.direction);
             bool closerIntersection = t > 0.0 && t < ray.intersectionT;
@@ -115,7 +115,7 @@ struct Intersector
             if (closerIntersection)
                 return 0.0;
         }
-        NBL_UNROLL for (int i = 0; i < scene_type::RectangleCount; i++)
+        NBL_UNROLL for (uint32_t i = 0; i < scene_type::RectangleCount; i++)
         {
             float t = scene.getRectangle(i).intersect(ray.origin, ray.direction);
             bool closerIntersection = t > 0.0 && t < ray.intersectionT;
