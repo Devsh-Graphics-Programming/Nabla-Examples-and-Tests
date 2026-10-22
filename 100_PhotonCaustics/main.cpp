@@ -379,7 +379,7 @@ public:
 				float(WIN_W) / float(WIN_H),
 				m_cameraSetting.zNear, m_cameraSetting.zFar);
 			// Initial position of the camera
-			m_camera = core::make_smart_refctd_ptr<ext::cameras::CFPSCamera>(InitialCamPos);
+			m_camera = core::make_smart_refctd_ptr<ext::cameras::CFPSCamera>(InitialCamPos, hlsl::math::quaternion<hlsl::float64_t>::identity(), ext::cameras::SWorldFrame::yUpRightHanded());
 			if (!resetCameraPose())
 				return logFail("Could not initialize camera orientation!");
 			// WASD moves, the mouse looks while the left button is held
@@ -676,7 +676,7 @@ public:
 	// the view matrix is the camera's, the projection is ours, so the concatenation is built here every time it's needed
 	inline hlsl::float32_t4x4 getViewProjectionMatrix() const
 	{
-		const auto viewMatrix = hlsl::float32_t3x4(m_camera->getGimbal().getViewMatrixRH());
+		const auto viewMatrix = hlsl::float32_t3x4(m_camera->getGimbal().getViewMatrix());
 		return hlsl::math::linalg::promoted_mul(m_cameraProjection, viewMatrix);
 	}
 
@@ -693,10 +693,7 @@ public:
 
 	inline bool resetCameraPose()
 	{
-		hlsl::math::quaternion<hlsl::float64_t> orientation;
-		if (!ext::cameras::CCameraMathUtilities::tryCreateQuaternionFromLookAt(InitialCamPos, InitialCamTarget, CamUp, orientation))
-			return false;
-		return m_camera->setPose(ext::cameras::SCameraRigPose{ .position = InitialCamPos, .orientation = orientation });
+		return m_camera->setLookAt(InitialCamPos, InitialCamTarget, CamUp);
 	}
 
 	inline void update()

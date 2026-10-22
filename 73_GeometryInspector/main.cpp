@@ -191,7 +191,7 @@ class GeometryInspectorApp final : public MonoWindowApplication, public BuiltinR
 
 				auto& selectedInstance = m_renderer->getInstance(m_selectedMesh);
 
-				imguizmoM16InOut.view = hlsl::transpose(hlsl::math::linalg::promote_affine<4, 4, 3, 4>(hlsl::float32_t3x4(m_camera->getGimbal().getViewMatrixRH())));
+				imguizmoM16InOut.view = hlsl::transpose(hlsl::math::linalg::promote_affine<4, 4, 3, 4>(hlsl::float32_t3x4(m_camera->getGimbal().getViewMatrix())));
 				imguizmoM16InOut.projection = hlsl::transpose(m_cameraProjection);
 				imguizmoM16InOut.projection[1][1] *= -1.f; // Flip y coordinates. https://johannesugb.github.io/gpu-programming/why-do-opengl-proj-matrices-fail-in-vulkan/
 				imguizmoM16InOut.model = hlsl::transpose(hlsl::math::linalg::promote_affine<4, 4, 3, 4>(selectedInstance.world));
@@ -349,7 +349,7 @@ class GeometryInspectorApp final : public MonoWindowApplication, public BuiltinR
 				}
 
 				// draw scene
-				float32_t3x4 viewMatrix = hlsl::float32_t3x4(m_camera->getGimbal().getViewMatrixRH());
+				float32_t3x4 viewMatrix = hlsl::float32_t3x4(m_camera->getGimbal().getViewMatrix());
 				float32_t4x4 viewProjMatrix = hlsl::math::linalg::promoted_mul(m_cameraProjection, viewMatrix);
 
  				m_renderer->render(cb,CSimpleDebugRenderer::SViewParams(viewMatrix,viewProjMatrix));
@@ -664,16 +664,9 @@ class GeometryInspectorApp final : public MonoWindowApplication, public BuiltinR
 				const auto pos = bound.maxVx+diagonal*distance;
 				const auto center = (bound.minVx+bound.maxVx)*0.5f;
 				const auto cameraEye = hlsl::float64_t3(pos.x, pos.y, pos.z);
-				hlsl::math::quaternion<hlsl::float64_t> cameraOrientation;
-				if (!ext::cameras::CCameraMathUtilities::tryCreateQuaternionFromLookAt(
-						cameraEye,
-						hlsl::float64_t3(center.x, center.y, center.z),
-						hlsl::float64_t3(0.0, 1.0, 0.0),
-						cameraOrientation))
-				{
+				m_camera = core::make_smart_refctd_ptr<ext::cameras::CFPSCamera>(cameraEye, hlsl::math::quaternion<hlsl::float64_t>::identity(), ext::cameras::SWorldFrame::yUpRightHanded());
+				if (!m_camera->setLookAt(cameraEye, hlsl::float64_t3(center.x, center.y, center.z), hlsl::float64_t3(0.0, 1.0, 0.0)))
 					return false;
-				}
-				m_camera = core::make_smart_refctd_ptr<ext::cameras::CFPSCamera>(cameraEye, cameraOrientation);
 				// WASD moves, the mouse looks while the left button is held
 				{
 					using namespace ext::cameras;

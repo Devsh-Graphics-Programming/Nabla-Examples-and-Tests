@@ -471,16 +471,9 @@ bool IESViewer::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
         const auto projectionMatrix = buildProjectionMatrixPerspectiveFovLH<float32_t>(hlsl::radians(uiState.cameraFovDeg), aspect, 10000.0f, 0.1f);
         cameraProjection = projectionMatrix;
         const auto cameraEye = hlsl::float64_t3(cameraPosition.x, cameraPosition.y, cameraPosition.z);
-        hlsl::math::quaternion<hlsl::float64_t> cameraOrientation;
-        if (!ext::cameras::CCameraMathUtilities::tryCreateQuaternionFromLookAt(
-                cameraEye,
-                hlsl::float64_t3(cameraTarget.x, cameraTarget.y, cameraTarget.z),
-                hlsl::float64_t3(0.0, 1.0, 0.0),
-                cameraOrientation))
-        {
+        camera = core::make_smart_refctd_ptr<ext::cameras::CFPSCamera>(cameraEye, hlsl::math::quaternion<hlsl::float64_t>::identity(), ext::cameras::SWorldFrame::yUpLeftHanded());
+        if (!camera->setLookAt(cameraEye, hlsl::float64_t3(cameraTarget.x, cameraTarget.y, cameraTarget.z), hlsl::float64_t3(0.0, 1.0, 0.0)))
             return logFail("Could not initialize camera orientation!");
-        }
-        camera = core::make_smart_refctd_ptr<ext::cameras::CFPSCamera>(cameraEye, cameraOrientation);
         // WASD moves, the mouse looks while the left button is held
         {
             using namespace ext::cameras;

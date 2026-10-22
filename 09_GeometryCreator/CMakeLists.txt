@@ -6,3 +6,7 @@ set(NBL_INCLUDE_SERACH_DIRECTORIES
 nbl_create_executable_project("" "" "${NBL_INCLUDE_SERACH_DIRECTORIES}" "" "")
 # TODO: Arek temporarily disabled cause I haven't figured out how to make this target yet
 # LINK_BUILTIN_RESOURCES_TO_TARGET(${EXECUTABLE_NAME} nblExamplesGeometrySpirvBRD)
+# the camera test bed draws the world axes with the DebugDraw extension
+if (NBL_BUILD_DEBUG_DRAW)
+	target_link_libraries(${EXECUTABLE_NAME} PRIVATE Nabla::ext::DebugDraw)
+endif()
