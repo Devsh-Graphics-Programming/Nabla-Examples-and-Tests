@@ -109,7 +109,7 @@ if(NBL_BUILD_EXAMPLES)
 	endif()
 
 	add_subdirectory(74_QuantizedSequenceTests)
-	add_subdirectory(75_ImageUploadBenchmark)
+	add_subdirectory(75_ImageStreamingBenchmarks)
 	if (NBL_COMPILE_WITH_CUDA)
 		add_subdirectory(76_CudaInterop)
 	endif()

@@ -1,6 +1,6 @@
-# Image Upload Benchmark
+# Image Streaming Benchmarks
 
-Measures the throughput of uploading 128x128 pixel tiles into a 2048x2048 `EF_R8G8B8A8_UNORM` image with `OPTIMAL` tiling in `DEVICE_LOCAL` memory. Every permutation moves the same payload: 256 tiles (16 MiB) per frame, 1000 frames, 15.6 GiB total. 
+Measures the throughput of streaming 128x128 pixel tiles into and out of a 2048x2048 `EF_R8G8B8A8_UNORM` image with `OPTIMAL` tiling in `DEVICE_LOCAL` memory. Every permutation moves the same payload: 256 tiles (16 MiB) per frame, 1000 frames, 15.6 GiB total. The `IUtilities` rows run 100 frames.
 
 ## Benchmark permutations
 
@@ -31,9 +31,19 @@ The `VK_EXT_host_image_copy` path, run only when the `hostImageCopy` limit is en
 
 Same entry point with `EHICF_MEMCPY_BIT` and a single region spanning the whole subresource. The host buffer already holds the image's raw optimal tiling bytes (see below), so the driver performs a flat memcpy with no swizzle. The spec requires MEMCPY copies to cover the full subresource with zero `imageOffset` and zero `memoryRowLength`/`memoryImageHeight`.
 
+### IUtilities upload and download
+
+`IUtilities::updateImageViaStagingBuffer` and `IUtilities::downloadImageViaStagingBuffer`, the engine's general purpose streaming path. Four rows: upload and download through an `IUtilities` with the default 64 MiB streaming buffers, and again through one created with 4 MiB upload and 4 MiB download buffers. The same 256 tile regions are passed every frame. Both functions chop the regions with `ImageRegionIterator` to fit whatever the streaming buffer can hand out; the 4 MiB pair cannot hold one 16 MiB frame, so every frame becomes about four chunks with an `overflowSubmit` between them. The submit count per direction is logged next to the throughput.
+
+The frame loop drives one `SIntendedSubmitInfo` with 4 scratch command buffers and a timeline semaphore. Per frame: write the start timestamp, call the utility, fetch `getCommandBufferForRecording` again since an internal overflow may have rotated the scratch buffer, write the end timestamp, `overflowSubmit`. That submit is the frame's own submit and the frames-in-flight throttle. Upload copies each chunk into staging on the CPU with `ImageRegionIterator::copyChunk`, so it is CPU bound, especially in Debug. Download records `copyImageToBuffer` plus a `HOST_READ` barrier and latches a `CDownstreamingDataConsumer` on the semaphore, which calls `copyChunk` to copy the chunk into the destination vector when the streaming buffer is later polled. `copyChunk` uses one memcpy per run of rows, slices or layers that has no padding on either side when the formats match, a byte reshuffle for 8 bit formats that differ only in channel count or order, and `CSwizzleAndConvertImageFilter` for any other format change.
+
+After the download loop `cull_frees` is drained until the last consumer has run, then the destination vector is memcmp'd against the uploaded source and `round-trip verification: PASS` or `FAIL` is logged per utility. Every frame downloads into the same vector, so only the last frame's bytes are checked.
+
+The columns mean something different for these rows. Wall time is measured the same way, but the GPU timestamps bracket the whole utility call, so when the utility overflows they span several submits and the host stalls between them. The GPU column is a true GPU number only for frames that fit in one allocation; for the 4 MiB rows it is close to wall time. The Memcpy column is zero since the memcpy happens inside the utility.
+
 ## How the numbers are computed
 
-The queue permutations run a frames-in-flight loop:
+The queue permutations (everything except the host image copy and `IUtilities` rows) run a frames-in-flight loop:
 
 - 4 command pools/buffers and one timeline semaphore. Before reusing a slot the CPU blocks until the submit from 4 frames ago completes, so at most 4 frames are in flight.
 - The 64 MiB staging buffer is split into 4 partitions of 16 MiB. Frame N writes partition N mod 4 while older frames still execute.
@@ -59,3 +69,14 @@ The MEMCPY row needs a buffer holding the image's opaque optimal tiling bytes. P
 6. Two PNGs are written to the working directory. `writeImagePNG` wraps the bytes in an `ICPUImage` over an adopted `ICPUBuffer` (no copy), wraps that in an `ICPUImageView`, and writes it with the asset manager:
    - `hostcopy_gradient.png`: the gradient as uploaded, W x H.
    - `hostcopy_optimal_tiling_raw.png`: the MEMCPY download reinterpreted as linear RGBA8 rows, W wide and ceil(hostMemcpySize / (W\*4)) tall, zero padded at the tail. It contains the same colors as the gradient but rearranged; the rearrangement is the driver's optimal tiling pattern.
+
+## Filter benchmarks
+
+Run with `--filters` (add `--quick` to skip the ablations) to skip the streaming benchmarks and run `FilterBenchmarks.h` instead. It times the CPU copy paths on their own and checks every output byte against a reference:
+
+- `CCopyImageFilter` on whole, clipped, layered, 3D and BC7 regions, into heap memory, uncached host visible system memory and BAR memory. Sentinel bytes around each region check that padding is never written.
+- `CSwizzleAndConvertImageFilter` with the byte reshuffle against the generic decode and encode path, including whether an 8 bit promotion comes out exact.
+- Ablations of the parts: plain memcpy, iteration only, decode and encode into the destination or into a temporary, memcpy piece sizes and store types into staging.
+- A full `IUtilities` upload and download of a 20000x7000 `R8G8B8_SRGB` image into `R8G8B8A8_SRGB`, run interleaved with a same format upload after a warm up, then verified.
+
+Output lines start with `FILTERBENCH`. On laptops the GPU can stay in a low power state during CPU bound uploads, which lowers the PCIe link speed and caps CPU writes into BAR memory, so compare upload numbers only within one run.
