@@ -7,6 +7,7 @@
 #include "nbl/ext/Cameras/CCameraMouseKeyboardController.hpp"
 #include "nbl/ext/Cameras/CCameraMouseKeyboardPresets.hpp"
 #include "nbl/ext/Cameras/CFPSCamera.hpp"
+#include "nbl/ext/Cameras/COrbitCamera.hpp"
 
 using namespace nbl;
 using namespace core;

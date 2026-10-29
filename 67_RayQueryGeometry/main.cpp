@@ -202,16 +202,9 @@ class RayQueryGeometryApp final : public SimpleWindowedApplication, public Built
 				core::vectorSIMDf cameraTarget(-0.349590302, -0.213266611, 0.317821503);
 				cameraProjection = hlsl::math::thin_lens::lhPerspectiveFovMatrix(core::radians(60.0f), float(WIN_W) / WIN_H, 0.1f, 1000.0f);
 				const auto cameraEye = hlsl::float64_t3(cameraPosition.x, cameraPosition.y, cameraPosition.z);
-				hlsl::math::quaternion<hlsl::float64_t> cameraOrientation;
-				if (!ext::cameras::CCameraMathUtilities::tryCreateQuaternionFromLookAt(
-						cameraEye,
-						hlsl::float64_t3(cameraTarget.x, cameraTarget.y, cameraTarget.z),
-						hlsl::float64_t3(0.0, 1.0, 0.0),
-						cameraOrientation))
-				{
+				camera = core::make_smart_refctd_ptr<ext::cameras::CFPSCamera>(cameraEye, hlsl::math::quaternion<hlsl::float64_t>::identity(), ext::cameras::SWorldFrame::yUpLeftHanded());
+				if (!camera->setLookAt(cameraEye, hlsl::float64_t3(cameraTarget.x, cameraTarget.y, cameraTarget.z), hlsl::float64_t3(0.0, 1.0, 0.0)))
 					return logFail("Could not initialize camera orientation!");
-				}
-				camera = core::make_smart_refctd_ptr<ext::cameras::CFPSCamera>(cameraEye, cameraOrientation);
 
 				// WASD moves, the mouse looks while the left button is held
 				{
@@ -293,7 +286,7 @@ class RayQueryGeometryApp final : public SimpleWindowedApplication, public Built
 				camera->manipulate(controls);
 			}
 
-			const auto viewMatrix = hlsl::float32_t3x4(camera->getGimbal().getViewMatrixLH());
+			const auto viewMatrix = hlsl::float32_t3x4(camera->getGimbal().getViewMatrix());
 			const auto projectionMatrix = cameraProjection;
 			const auto viewProjectionMatrix = hlsl::math::linalg::promoted_mul(cameraProjection, viewMatrix);
 

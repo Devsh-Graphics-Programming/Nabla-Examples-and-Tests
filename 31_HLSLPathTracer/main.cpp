@@ -1066,7 +1066,7 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 
 					ImGuizmo::SetID(0u);
 
-					imguizmoM16InOut.view = hlsl::transpose(math::linalg::promoted_mul(float32_t4x4(1.f), hlsl::float32_t3x4(m_camera->getGimbal().getViewMatrixRH())));
+					imguizmoM16InOut.view = hlsl::transpose(math::linalg::promoted_mul(float32_t4x4(1.f), hlsl::float32_t3x4(m_camera->getGimbal().getViewMatrix())));
 					imguizmoM16InOut.projection = hlsl::transpose(m_cameraProjection);
 					imguizmoM16InOut.projection[1][1] *= -1.f; // https://johannesugb.github.io/gpu-programming/why-do-opengl-proj-matrices-fail-in-vulkan/	
 
@@ -1112,11 +1112,9 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 				const auto cameraPosition = hlsl::float64_t3(0.0, 5.0, -10.0);
 				const auto proj = hlsl::math::thin_lens::rhPerspectiveFovMatrix<float>(hlsl::radians(guiControlled.fov), WindowDimensions.x / WindowDimensions.y, guiControlled.zNear, guiControlled.zFar);
 				m_cameraProjection = proj;
-				hlsl::math::quaternion<hlsl::float64_t> cameraOrientation;
-				if (!ext::cameras::CCameraMathUtilities::tryCreateQuaternionFromLookAt(
-						cameraPosition, hlsl::float64_t3(0.0, 0.0, 0.0), hlsl::float64_t3(0.0, 1.0, 0.0), cameraOrientation))
+				m_camera = core::make_smart_refctd_ptr<ext::cameras::CFPSCamera>(cameraPosition, hlsl::math::quaternion<hlsl::float64_t>::identity(), ext::cameras::SWorldFrame::yUpRightHanded());
+				if (!m_camera->setLookAt(cameraPosition, hlsl::float64_t3(0.0, 0.0, 0.0), hlsl::float64_t3(0.0, 1.0, 0.0)))
 					return logFail("Could not initialize camera orientation!");
-				m_camera = core::make_smart_refctd_ptr<ext::cameras::CFPSCamera>(cameraPosition, cameraOrientation);
 				// WASD moves, the mouse looks while the left button is held
 				{
 					using namespace ext::cameras;
@@ -1222,7 +1220,7 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 			RenderPushConstants pc;
 			auto updatePathtracerPushConstants = [&]() -> void {
 				// disregard surface/swapchain transformation for now
-				const float32_t4x4 viewProjectionMatrix = hlsl::math::linalg::promoted_mul(m_cameraProjection, hlsl::float32_t3x4(m_camera->getGimbal().getViewMatrixRH()));
+				const float32_t4x4 viewProjectionMatrix = hlsl::math::linalg::promoted_mul(m_cameraProjection, hlsl::float32_t3x4(m_camera->getGimbal().getViewMatrix()));
 				const float32_t3x4 modelMatrix = hlsl::math::linalg::identity<hlsl::float32_t3x4>();
 
 				const float32_t4x4 modelViewProjectionMatrix = nbl::hlsl::math::linalg::promoted_mul(viewProjectionMatrix, modelMatrix);

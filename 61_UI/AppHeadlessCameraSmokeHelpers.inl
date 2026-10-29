@@ -470,7 +470,7 @@
 			{
 				const auto targetPosition = trackedTarget.getGimbal().getPosition();
 				const auto cameraPosition = camera ? camera->getGimbal().getPosition() : float64_t3(0.0);
-				const auto viewMatrix = camera ? hlsl::math::linalg::promote_affine<4,4,3,4>(camera->getGimbal().getViewMatrixLH()) : float64_t4x4(1.0);
+				const auto viewMatrix = camera ? hlsl::math::linalg::promote_affine<4,4,3,4>(camera->getGimbal().getViewMatrix()) : float64_t4x4(1.0);
 				const auto targetView = hlsl::mul(viewMatrix, float64_t4(targetPosition, 1.0));
 				std::ostringstream oss;
 				oss << "Follow visual metrics smoke had projected center error for " << label
@@ -1171,7 +1171,7 @@
 				const auto& gimbal = orbitCamera->getGimbal();
 				const auto pos = gimbal.getPosition();
 				const auto orientation = gimbal.getOrientation();
-				const auto basis = gimbal.getBasis();
+				const auto basis = orbitCamera->getBasis();
 				const auto eulerDeg = CCameraMathUtilities::getPitchYawRollDegrees(gimbal.getOrientation());
 				std::ostringstream oss;
 				oss << std::fixed << std::setprecision(6)
@@ -1246,7 +1246,7 @@
 				const auto details = !frameResult.logs.empty() ? frameResult.logs.front().text : std::string("missing log details");
 				const auto& gimbal = orbitCamera->getGimbal();
 				const auto cameraPos = gimbal.getPosition();
-				const auto cameraForward = gimbal.getForward();
+				const auto cameraForward = orbitCamera->getBasis().forward;
 				const auto targetPos = trackedTarget.getGimbal().getPosition();
 				const auto desiredForward = normalize(targetPos - cameraPos);
 				quaternion<float64_t> desiredOrientation = hlsl::math::quaternion<float64_t>::identity();
@@ -1254,19 +1254,20 @@
 						cameraPos,
 						targetPos,
 						float64_t3(0.0, 1.0, 0.0),
+						orbitCamera->getFrame(),
 						desiredOrientation))
 				{
 					if (outError)
 						*outError = "Scripted check runner follow-lock smoke failed to build desired look-at orientation.";
 					return false;
 				}
-				const auto desiredBasis = CCameraMathUtilities::getOrientationBasis(desiredOrientation);
+				const auto desiredBasis = CCameraMathUtilities::basisFromOrientation(desiredOrientation, ECameraHandedness::LeftHanded);
 				const auto desiredRight = desiredBasis.right;
 				const auto desiredUp = desiredBasis.up;
 				const auto goalRightVec = hlsl::normalize(followGoal.orientation).transformVector(float64_t3(1.0, 0.0, 0.0), true);
 				const auto goalUpVec = hlsl::normalize(followGoal.orientation).transformVector(float64_t3(0.0, 1.0, 0.0), true);
 				const auto goalForwardVec = hlsl::normalize(followGoal.orientation).transformVector(float64_t3(0.0, 0.0, 1.0), true);
-				const auto goalBasis = CCameraMathUtilities::getOrientationBasis(followGoal.orientation);
+				const auto goalBasis = CCameraMathUtilities::basisFromOrientation(followGoal.orientation, ECameraHandedness::LeftHanded);
 				float64_t lockAngle = 0.0;
 				double targetDistance = 0.0;
 				const bool hasLockMetrics = CCameraFollowUtilities::tryComputeFollowTargetLockMetrics(gimbal, trackedTarget, lockAngle, &targetDistance);

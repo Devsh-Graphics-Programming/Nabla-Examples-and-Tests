@@ -191,6 +191,7 @@
 				desiredState,
 				nbl::ext::cameras::ICamera::DefaultMinTargetDistance,
 				nbl::ext::cameras::ICamera::DefaultMaxTargetDistance,
+				nbl::ext::cameras::SWorldFrame::yUpLeftHanded(),
 				pose) ||
 			!CCameraGoalUtilities::applyCanonicalTargetRelativeGoal(outExpectedGoal, desiredState))
 		{
@@ -519,17 +520,20 @@
 					sphericalState.target,
 					desiredPathState,
 					pathLimits,
+					nbl::ext::cameras::SWorldFrame::yUpLeftHanded(),
 					canonicalPathState) ||
 				!nbl::ext::cameras::CCameraPathUtilities::tryResolvePathState(
 					sphericalState.target,
 					canonicalPathState.pose.position,
 					pathLimits,
+					nbl::ext::cameras::SWorldFrame::yUpLeftHanded(),
 					nullptr,
 					projectedPathState) ||
 				!nbl::ext::cameras::CCameraPathUtilities::tryBuildCanonicalPathState(
 					sphericalState.target,
 					baselinePathState,
 					pathLimits,
+					nbl::ext::cameras::SWorldFrame::yUpLeftHanded(),
 					baselineCanonicalPathState) ||
 				!CCameraGoalUtilities::applyCanonicalPathGoalFields(
 					expectedGoal,
@@ -1278,7 +1282,7 @@
 			forwardControls.translate.z = 2.0;
 
 			const auto baselinePosition = state.fpsCamera->getGimbal().getPosition();
-			const auto baselineForward = state.fpsCamera->getGimbal().getForward();
+			const auto baselineForward = state.fpsCamera->getBasis().forward;
 			const auto expectedPositionDelta = baselineForward * forwardControls.translate.z;
 			if (!state.fpsCamera->manipulate(forwardControls))
 			{
@@ -1308,7 +1312,7 @@
 				translationControls.translate.z = 2.0;
 
 				const auto baselinePosition = state.freeCamera->getGimbal().getPosition();
-				const auto baselineForward = state.freeCamera->getGimbal().getForward();
+				const auto baselineForward = state.freeCamera->getBasis().forward;
 				const auto expectedPositionDelta = baselineForward * translationControls.translate.z;
 				if (!state.freeCamera->manipulate(translationControls))
 				{
@@ -1331,8 +1335,8 @@
 				SCameraControls rotationControls = {};
 				rotationControls.rotate.y = 2.0;
 
-				const auto baselineForward = state.freeCamera->getGimbal().getForward();
-				const auto baselineUp = state.freeCamera->getGimbal().getUp();
+				const auto baselineForward = state.freeCamera->getBasis().forward;
+				const auto baselineUp = state.freeCamera->getBasis().up;
 				const auto expectedForward = hlsl::normalize(
 					hlsl::math::quaternion<hlsl::float64_t>::createFromAxisAngle(hlsl::normalize(baselineUp), rotationControls.rotate.y)
 				).transformVector(baselineForward, true);
@@ -1342,7 +1346,7 @@
 					return false;
 				}
 
-				const auto actualForward = state.freeCamera->getGimbal().getForward();
+				const auto actualForward = state.freeCamera->getBasis().forward;
 				if (!CCameraMathUtilities::nearlyEqualVec3(actualForward, expectedForward, SCameraSmokeUtilityThresholds::PositionWriteback))
 				{
 					outError = "Free rotation smoke did not yaw one radian per unit of rotate.y about the rig's own up axis.";
