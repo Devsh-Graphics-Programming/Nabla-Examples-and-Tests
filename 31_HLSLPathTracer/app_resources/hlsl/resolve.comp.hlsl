@@ -25,7 +25,7 @@ struct SCascadeAccessor
     }
 
     template<typename OutputScalarType, int32_t Dimension>
-    void get(NBL_REF_ARG(output_t) value, vector<uint16_t, 2> uv, uint16_t layer, uint16_t level)
+    void get(NBL_REF_ARG(output_t) value, vector<uint16_t, 2> uv, uint16_t layer, uint16_t level) NBL_CONST_MEMBER_FUNC
     {
         if (any(uv < int16_t2(0, 0)) || any(uv >= cascadeImageDimension))
         {
