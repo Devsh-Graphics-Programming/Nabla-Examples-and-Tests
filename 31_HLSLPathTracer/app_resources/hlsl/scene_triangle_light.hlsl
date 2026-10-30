@@ -22,19 +22,19 @@ struct SceneTriangleLight : SceneBase
     NBL_CONSTEXPR_STATIC_INLINE uint32_t TriangleCount = base_t::SCENE_LIGHT_COUNT;
     NBL_CONSTEXPR_STATIC_INLINE uint32_t RectangleCount = 0u;
 
-    static const Shape<scalar_type, PST_TRIANGLE> light_triangles[1];
+    static Shape<scalar_type, PST_TRIANGLE> light_triangles[1]; // not const because we can update its transform
 
-    Shape<scalar_type, PST_SPHERE> getSphere(uint32_t idx)
+    Shape<scalar_type, PST_SPHERE> getSphere(uint32_t idx) NBL_CONST_MEMBER_FUNC
     {
         assert(idx < SphereCount);
         return base_t::scene_spheres[idx];
     }
-    Shape<scalar_type, PST_TRIANGLE> getTriangle(uint32_t idx)
+    Shape<scalar_type, PST_TRIANGLE> getTriangle(uint32_t idx) NBL_CONST_MEMBER_FUNC
     {
         assert(idx < TriangleCount);
         return light_triangles[idx];
     }
-    Shape<scalar_type, PST_RECTANGLE> getRectangle(uint32_t idx)
+    Shape<scalar_type, PST_RECTANGLE> getRectangle(uint32_t idx) NBL_CONST_MEMBER_FUNC
     {
         assert(false);
         Shape<scalar_type, PST_RECTANGLE> dummy;
@@ -46,7 +46,7 @@ struct SceneTriangleLight : SceneBase
         light_triangles[0].updateTransform(generalPurposeLightMatrix);
     }
 
-    mat_light_id_type getMatLightIDs(NBL_CONST_REF_ARG(object_handle_type) objectID)
+    mat_light_id_type getMatLightIDs(NBL_CONST_REF_ARG(object_handle_type) objectID) NBL_CONST_MEMBER_FUNC
     {
         assert(objectID.shapeType == PST_SPHERE || objectID.shapeType == PST_TRIANGLE);
         if (objectID.shapeType == PST_SPHERE)
@@ -56,7 +56,7 @@ struct SceneTriangleLight : SceneBase
     }
 
     template<class Intersection, class Ray>
-    Intersection getIntersection(NBL_CONST_REF_ARG(object_handle_type) objectID, NBL_CONST_REF_ARG(Ray) rayIntersected)
+    Intersection getIntersection(NBL_CONST_REF_ARG(object_handle_type) objectID, NBL_CONST_REF_ARG(Ray) rayIntersected) NBL_CONST_MEMBER_FUNC
     {
         assert(objectID.shapeType == PST_SPHERE || objectID.shapeType == PST_TRIANGLE);
         Intersection intersection;
@@ -76,7 +76,7 @@ struct SceneTriangleLight : SceneBase
     }
 };
 
-const Shape<float, PST_TRIANGLE> SceneTriangleLight::light_triangles[1] = {
+Shape<float, PST_TRIANGLE> SceneTriangleLight::light_triangles[1] = {
     Shape<float, PST_TRIANGLE>::create(float3(-1.8,0.35,0.3) * 10.0, float3(-1.2,0.35,0.0) * 10.0, float3(-1.5,0.8,-0.3) * 10.0, SceneBase::SCENE_BXDF_COUNT-1u, 1u)
 };
 
