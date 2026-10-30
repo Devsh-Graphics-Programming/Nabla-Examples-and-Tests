@@ -20,6 +20,14 @@ enum ProceduralShapeType : uint16_t
     PST_RECTANGLE
 };
 
+enum IntersectMode : uint32_t
+{
+    IM_RAY_QUERY,
+    IM_RAY_TRACING,
+    IM_PROCEDURAL,
+    IM_ENVMAP,
+};
+
 template<typename T>
 struct Payload
 {
@@ -233,6 +241,24 @@ struct Light
 
     MaterialID emissiveMatID;
     ObjectID objectID;
+};
+
+template <typename EnvMapT, typename HierarchicalImageT>
+struct EnvmapLight
+{
+    using spectral_type = float32_t3;
+    using this_type = EnvmapLight<EnvMapT, HierarchicalImageT>;
+
+    static this_type create(NBL_CONST_REF_ARG(EnvMapT) envMap, NBL_CONST_REF_ARG(HierarchicalImageT) hierarchicalImage)
+    {
+      this_type retval;
+      retval.envMap = envMap;
+      retval.hierarchicalImage = hierarchicalImage;
+      return retval;
+    }
+
+    EnvMapT envMap;
+    HierarchicalImageT hierarchicalImage;
 };
 
 template<typename T>
