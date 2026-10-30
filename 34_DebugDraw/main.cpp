@@ -21,7 +21,7 @@ public:
 		if (!m_surface)
 		{
 			{
-				auto windowCallback = core::make_smart_refctd_ptr<examples::CEventCallback>(smart_refctd_ptr(m_inputSystem), smart_refctd_ptr(m_logger));
+				auto windowCallback = core::make_smart_refctd_ptr<nbl::examples::CEventCallback>(smart_refctd_ptr(m_inputSystem), smart_refctd_ptr(m_logger));
 				IWindow::SCreationParams params = {};
 				params.callback = core::make_smart_refctd_ptr<nbl::video::ISimpleManagedSurface::ICallback>();
 				params.width = WIN_W;

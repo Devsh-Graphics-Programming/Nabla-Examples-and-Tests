@@ -8,16 +8,16 @@ set(SRCs
 )
 
 set(LIBs 
-	imtestengine
-	imguizmo
-	"${NBL_EXT_IMGUI_UI_LIB}"
+	Nabla::ext::ImGUI
 	Nabla::ext::FullScreenTriangle
 )
 	
 nbl_create_executable_project("${SRCs}" "" "" "${LIBs}")
+find_package(nlohmann_json CONFIG REQUIRED)
 target_link_libraries(${EXECUTABLE_NAME} PRIVATE nlohmann_json::nlohmann_json)
-add_dependencies(${EXECUTABLE_NAME} argparse)
-target_include_directories(${EXECUTABLE_NAME} PUBLIC $<TARGET_PROPERTY:argparse,INTERFACE_INCLUDE_DIRECTORIES>)
+find_package(argparse CONFIG REQUIRED)
+target_link_libraries(${EXECUTABLE_NAME} PRIVATE argparse::argparse)
+# target_include_directories(${EXECUTABLE_NAME} PUBLIC $<TARGET_PROPERTY:argparse,INTERFACE_INCLUDE_DIRECTORIES>)
 
 set(OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/auto-gen")
 set(DEPENDS
