@@ -48,8 +48,9 @@ struct RenderPushConstants
     uint32_t sequenceSampleCountLog2 : 5;
     uint32_t useKrivanekCompensation : 1;
     uint32_t useNEE : 1;
+    uint32_t useEnvmap : 1;
     E_ENV_METHOD envMethod : 2;
-    uint32_t unused : 9;
+    uint32_t unused : 8;
 };
 #undef MAX_SAMPLES_LOG2
 #undef MAX_DEPTH_LOG2

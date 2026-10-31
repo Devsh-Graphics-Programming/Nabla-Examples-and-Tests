@@ -129,6 +129,7 @@ void runPersistent()
 	pathtracer.randGen.pSampleBuffer = renderPushConstants.pSampleSequence;
 	pathtracer.nee.lights = lights;
 	pathtracer.nee.envSampler = env_direction_sampler_type::create(renderPushConstants.envMethod);
+	pathtracer.nee.envLightPdf = renderPushConstants.useEnvmap ? 0.5 : 0.0;
 	pathtracer.materialSystem.bxdfs = bxdfs;
 	pathtracer.bxdfWeightThreshold = 0.0001;
 	pathtracer.lumaContributionThreshold = hlsl::dot(colorspace::scRGBtoXYZ[1], colorspace::eotf::sRGB(hlsl::promote<spectral_t>(1.0 / 255.0)));
@@ -136,6 +137,7 @@ void runPersistent()
 	LuminanceAccessor<float32_t> luminanceAccessor;
 	pathtracer.krivanekCoeff = renderPushConstants.useKrivanekCompensation ? (0.5 * numbers::inv_pi<float32_t>) : 0.0;
 	pathtracer.useNEE = renderPushConstants.useNEE;
+	pathtracer.useEnvmap = renderPushConstants.useEnvmap;
 
 	[loop]
 	for (uint32_t wgBase = glsl::gl_WorkGroupID().x; wgBase < numWorkgroupsX * numWorkgroupsY; wgBase += glsl::gl_NumWorkGroups().x)

@@ -1056,6 +1056,7 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
 
             ImGui::Checkbox("Use krivanek compensation", &guiControlled.useKrivanekCompensation);
             ImGui::Checkbox("Use NEE", &guiControlled.useNEE);
+            ImGui::Checkbox("Use Envmap", &guiControlled.useEnvmap);
             if (ImGui::CollapsingHeader("Controls", ImGuiTreeNodeFlags_DefaultOpen))
             {
               if (ImGui::CollapsingHeader("Camera"))
@@ -1321,6 +1322,7 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
         pc.envMethod = static_cast<E_ENV_METHOD>(guiControlled.envMethod);
         pc.useKrivanekCompensation = guiControlled.useKrivanekCompensation;
         pc.useNEE = guiControlled.useNEE;
+        pc.useEnvmap = guiControlled.useEnvmap;
         const auto warpExtent = m_envMapView->getCreationParameters().image->getCreationParameters().extent;
         if (guiControlled.useRWMC)
         {
@@ -3011,12 +3013,13 @@ class HLSLComputePathtracer final : public SimpleWindowedApplication, public Bui
       float camXAngle = 32.f / 180.f * 3.14159f;
       int PTPipeline = E_LIGHT_GEOMETRY::ELG_SPHERE;
       int polygonMethod = EPM_PROJECTED_SOLID_ANGLE;
-      int envMethod = EEM_UNIFORM;
+      int envMethod = EEM_HIERARCHICAL_WARP;
       int spp = 32;
       int depth = 3;
       rwmc::SResolveParameters::SCreateParams rwmcParams;
       bool useRWMC = false;
       bool useKrivanekCompensation = false;
+      bool useEnvmap = false;
       bool useNEE = false;
     };
     GUIControllables guiControlled;

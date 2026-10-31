@@ -428,8 +428,6 @@ struct NextEventEstimator
 
     using shape_type = Shape<scalar_type, PST>;
 
-    NBL_CONSTEXPR_STATIC_INLINE float32_t ENV_LIGHT_PDF = 0.5;
-
     struct SampleQuotientReturn
     {
         using sample_type = sample_type;
@@ -470,11 +468,11 @@ struct NextEventEstimator
     scalar_type backwardWeight(NBL_CONST_REF_ARG(scene_type) scene, light_id_type lightID, NBL_CONST_REF_ARG(ray_type) ray)
     {
         if (lightID.id == getEnvLightId().id)
-          return ENV_LIGHT_PDF * envSampler.backwardWeight(ray.direction, ray.normalAtOrigin);
+          return envLightPdf * envSampler.backwardWeight(ray.direction, ray.normalAtOrigin);
         const light_type light = lights[0u];
         const shape_type shape = __getShape(light.objectID.id, scene);
         const shape_sampling_type sampling = shape_sampling_type::create(shape);
-        return (scalar_type(1) - ENV_LIGHT_PDF) * sampling.template backwardWeight<ray_type>(ray) / scalar_type(scene_type::SCENE_LIGHT_COUNT);
+        return (scalar_type(1) - envLightPdf) * sampling.template backwardWeight<ray_type>(ray) / scalar_type(scene_type::SCENE_LIGHT_COUNT);
     }
 
     template<class MaterialSystem>
@@ -486,7 +484,7 @@ struct NextEventEstimator
         const vector3_type N = interaction.getN();
         sampling::PartitionRandVariable<scalar_type> partitionRandVariable;
         scalar_type rcpChoiceProb;
-        partitionRandVariable.leftProb = ENV_LIGHT_PDF;
+        partitionRandVariable.leftProb = envLightPdf;
         if (!partitionRandVariable(sample_xi.z, rcpChoiceProb))
         {
           EnvSamplerReturn<scalar_type> envSample = envSampler.generate(sample_xi.xy, interaction.getFromTangentSpace());
@@ -497,7 +495,7 @@ struct NextEventEstimator
           ray_dir_info_type rayL;
           rayL.setDirection(direction);
           retval.sample_ = sample_type::create(rayL,interaction.getT(),interaction.getB(),NdotL);
-          retval.quotient_weight = quotient_weight_type::create(envSample.quotient_weight.quotient() / ENV_LIGHT_PDF, ENV_LIGHT_PDF * envSample.quotient_weight.weight());
+          retval.quotient_weight = quotient_weight_type::create(envSample.quotient_weight.quotient() / envLightPdf, envLightPdf * envSample.quotient_weight.weight());
           retval.newRayMaxT = 2 * scene.getRadius();
 
           return retval;
@@ -538,8 +536,8 @@ struct NextEventEstimator
             }
 
             newRayMaxT *= tolerance_method_type::getEnd(ray.depth);
-            pdf *= (scalar_type(1) - ENV_LIGHT_PDF) / scalar_type(scene_type::SCENE_LIGHT_COUNT);
-            weight *= (scalar_type(1) - ENV_LIGHT_PDF) / scalar_type(scene_type::SCENE_LIGHT_COUNT);
+            pdf *= (scalar_type(1) - envLightPdf) / scalar_type(scene_type::SCENE_LIGHT_COUNT);
+            weight *= (scalar_type(1) - envLightPdf) / scalar_type(scene_type::SCENE_LIGHT_COUNT);
             const spectral_type radiance = materialSystem.getEmission(light.emissiveMatID, interaction);
             spectral_type quo = radiance / pdf;
             retval.quotient_weight = quotient_weight_type::create(quo, weight);
@@ -572,6 +570,7 @@ struct NextEventEstimator
 
     light_type lights[scene_type::SCENE_LIGHT_COUNT];
     EnvSamplerT envSampler;
+    scalar_type envLightPdf;
 };
 
 #endif
