@@ -201,7 +201,7 @@ class MPMCSchedulerApp final : public SimpleWindowedApplication, public BuiltinR
 			m_winMgr->setWindowSize(m_window.get(), WIN_W, WIN_H);
 			m_surface->recreateSwapchain();
 
-			auto assetManager = make_smart_refctd_ptr<IAssetManager>(smart_refctd_ptr(system));
+			auto assetManager = make_smart_refctd_ptr<IAssetManager>(smart_refctd_ptr(m_system));
 
 			m_winMgr->show(m_window.get());
 
