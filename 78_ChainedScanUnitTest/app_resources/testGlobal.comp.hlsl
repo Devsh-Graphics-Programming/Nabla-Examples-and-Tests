@@ -11,45 +11,40 @@ using config_t = WORKGROUP_CONFIG_T;
 
 #include "app_resources/shaderCommon.hlsl"
 
-typedef vector<uint32_t, config_t::ItemsPerInvocation_0> type_t;
-
+// SharedScratchElementCount is 0 when VirtualWorkgroupSize == SubgroupSize (no shared memory needed), so we max with 1 since a 0-sized array won't compile (mpl::max_v is a compile-time max)
 groupshared uint32_t scratch[mpl::max_v<int16_t,config_t::SharedScratchElementCount,1>];
 
-struct ScratchProxy
+// The algorithm uses this accessor to access our shared memory, used for the workgroup-level scans, also the first index is abused to broadcast single values to the whole workgroup (workgroup ticket, tile reduction, lookback index, preceding tiles' reduction)
+struct ScratchAccessor
 {
+    // this is the example's accessor, so it's ok to assume AccessType=uint32_t accesses, but if someone uses floats for get/set it would value-convert (not bitcast) and give wrong results
+    // we still need the AccessType template param, because the scan calls `scratchAccessor.template get<scalar_t,IndexType>(...)` and GenericSharedMemoryAccessor concept checks that this exists
     template<typename AccessType, typename IndexType>
-    void get(const uint32_t ix, NBL_REF_ARG(AccessType) value)
+    void get(const IndexType ix, NBL_REF_ARG(AccessType) value)
     {
         value = scratch[ix];
     }
     template<typename AccessType, typename IndexType>
-    void set(const uint32_t ix, const AccessType value)
+    void set(const IndexType ix, const AccessType value)
     {
         scratch[ix] = value;
     }
 
-    uint32_t atomicOr(const uint32_t ix, const uint32_t value)
-    {
-        return glsl::atomicOr(scratch[ix],value);
-    }
-
     void workgroupExecutionAndMemoryBarrier()
     {
-        glsl::barrier();
+        spirv::controlBarrier(spv::ScopeWorkgroup, spv::ScopeWorkgroup, spv::MemorySemanticsAcquireReleaseMask | spv::MemorySemanticsWorkgroupMemoryMask);
     }
 };
 
 template<uint16_t VirtualWorkgroupSize, uint16_t ItemsPerInvocation>
-struct DataProxy
+struct DataAccessor
 {
     using dtype_t = vector<uint32_t, ItemsPerInvocation>;
     // function template AccessType should be the same as dtype_t
 
-    static DataProxy<VirtualWorkgroupSize, ItemsPerInvocation> create(const uint64_t inputBuf, const uint64_t outputBuf)
+    static DataAccessor<VirtualWorkgroupSize, ItemsPerInvocation> create(const uint64_t inputBuf, const uint64_t outputBuf)
     {
-        DataProxy<VirtualWorkgroupSize, ItemsPerInvocation> retval;
-        const uint32_t workgroupOffset = glsl::gl_WorkGroupID().x * VirtualWorkgroupSize * sizeof(dtype_t);
-        retval.accessor = DoubleLegacyBdaAccessor<dtype_t>::create(inputBuf + workgroupOffset, outputBuf + workgroupOffset);
+        DataAccessor<VirtualWorkgroupSize, ItemsPerInvocation> retval;
         retval.inputAddress = inputBuf;
         retval.outputAddress = outputBuf;
         return retval;
@@ -152,39 +147,27 @@ struct WorkgroupCounter
     bda::__ptr<uint32_t> ptr;
 };
 
-static ScratchProxy arithmeticAccessor;
-
-template<class Binop, class device_capabilities>
-struct operation_t
-{
-    using binop_base_t = typename Binop::base_t;
-    using otype_t = typename Binop::type_t;
-
-    void operator()()
-    {
-        using data_proxy_t = DataProxy<config_t::VirtualWorkgroupSize,config_t::ItemsPerInvocation_0>;
-        data_proxy_t dataAccessor = data_proxy_t::create(pc.pInputBuf, pc.pOutputBuf[Binop::BindingIndex]);
-
-        using reduce_proxy_t = ReduceAccessor<otype_t>;
-        bda::__ptr<otype_t> ptr = bda::__ptr<otype_t>::create(pc.pReduceBufs + Binop::BindingIndex * pc.reduceBufStride);
-        reduce_proxy_t reduceAccessor = reduce_proxy_t::create(ptr);
-
-        WorkgroupCounter wgCounter = WorkgroupCounter::create(pc.pWgCounterBufs + Binop::BindingIndex * pc.counterBufStride);
-
-        OPERATION<config_t,binop_base_t,device_capabilities>::template __call<data_proxy_t, ScratchProxy, reduce_proxy_t, WorkgroupCounter>(dataAccessor,arithmeticAccessor,reduceAccessor,wgCounter);
-        // we barrier before because we alias the accessors for Binop
-        arithmeticAccessor.workgroupExecutionAndMemoryBarrier();
-    }
-};
-
-
 template<class Binop>
 static void subtest()
 {
-    assert(glsl::gl_SubgroupSize() == config_t::SubgroupSize)
+    assert(glsl::gl_SubgroupSize() == config_t::SubgroupSize);
 
-    operation_t<Binop,device_capabilities> func;
-    func();
+    using binop_base_t = typename Binop::base_t;
+    using otype_t = typename Binop::type_t;
+
+    using data_accessor_t = DataAccessor<config_t::VirtualWorkgroupSize,config_t::ItemsPerInvocation_0>;
+    data_accessor_t dataAccessor = data_accessor_t::create(pc.pInputBuf, pc.pOutputBuf[Binop::BindingIndex]);
+
+    using reduce_accessor_t = ReduceAccessor<otype_t>;
+    bda::__ptr<otype_t> ptr = bda::__ptr<otype_t>::create(pc.pReduceBufs + Binop::BindingIndex * pc.reduceBufStride);
+    reduce_accessor_t reduceAccessor = reduce_accessor_t::create(ptr);
+
+    WorkgroupCounter wgCounter = WorkgroupCounter::create(pc.pWgCounterBufs + Binop::BindingIndex * pc.counterBufStride);
+
+    ScratchAccessor scratchAccessor;
+    OPERATION<config_t,binop_base_t,device_capabilities>::template __call<data_accessor_t, ScratchAccessor, reduce_accessor_t, WorkgroupCounter>(dataAccessor,scratchAccessor,reduceAccessor,wgCounter);
+    // we barrier before because we alias the accessors for Binop
+    scratchAccessor.workgroupExecutionAndMemoryBarrier();
 }
 
 void test()
