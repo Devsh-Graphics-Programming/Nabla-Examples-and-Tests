@@ -11,6 +11,9 @@ compiled.spv
 */test/nbl.py
 *.pyc
 */.vscode/*
+# Visual Studio "Open Folder" (CMake) state and build output
+*/.vs/
+*/out/
 */__main__.py
 tmp
 /tmp/rtSamples.bin
