@@ -36,11 +36,12 @@ struct ScratchAccessor
     }
 };
 
+// The algorithm uses this accessor to write the final scanned values of its tile into the output buffer and read from the input buffer
 template<uint16_t VirtualWorkgroupSize, uint16_t ItemsPerInvocation>
 struct DataAccessor
 {
-    using dtype_t = vector<uint32_t, ItemsPerInvocation>;
     // function template AccessType should be the same as dtype_t
+    using dtype_t = vector<uint32_t, ItemsPerInvocation>;
 
     static DataAccessor<VirtualWorkgroupSize, ItemsPerInvocation> create(const uint64_t inputBuf, const uint64_t outputBuf)
     {
