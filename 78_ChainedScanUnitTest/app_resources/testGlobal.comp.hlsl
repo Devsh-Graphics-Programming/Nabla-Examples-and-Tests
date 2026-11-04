@@ -87,6 +87,8 @@ struct DataAccessor
     uint64_t inputAddress, outputAddress;
 };
 
+// one value per workgroup tile (indexed by ticket), workgroups use it to communicate local scan results to the tiles after them
+// a value is a packed `flag | (value << 2)` 
 template<typename T>
 struct ReduceAccessor
 {
