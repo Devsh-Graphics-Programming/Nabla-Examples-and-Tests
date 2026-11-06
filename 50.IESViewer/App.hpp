@@ -58,7 +58,7 @@ public:
     {
         if (!m_surface)
         {
-            auto windowCallback = make_smart_refctd_ptr<examples::CEventCallback>(smart_refctd_ptr(m_inputSystem), smart_refctd_ptr(m_logger));
+            auto windowCallback = make_smart_refctd_ptr<nbl::examples::CEventCallback>(smart_refctd_ptr(m_inputSystem), smart_refctd_ptr(m_logger));
             IWindow::SCreationParams params = {};
             params.callback = make_smart_refctd_ptr<video::ISimpleManagedSurface::ICallback>();
             params.width = m_initialResolution[0];

@@ -11,21 +11,21 @@
 struct BdaProbabilityAccessor
 {
 	template<typename V, typename I NBL_FUNC_REQUIRES(is_floating_point_v<V> && is_integral_v<I>)
-	void get(I i, NBL_REF_ARG(V) val) { val = vk::RawBufferLoad<V>(addr + uint64_t(sizeof(V)) * uint64_t(i)); }
+	void get(I i, NBL_REF_ARG(V) val) NBL_CONST_MEMBER_FUNC { val = vk::RawBufferLoad<V>(addr + uint64_t(sizeof(V)) * uint64_t(i)); }
 	uint64_t addr;
 };
 
 struct BdaAliasIndexAccessor
 {
 	template<typename V, typename I NBL_FUNC_REQUIRES(is_integral_v<V> && is_integral_v<I>)
-	void get(I i, NBL_REF_ARG(V) val) { val = vk::RawBufferLoad<V>(addr + uint64_t(sizeof(V)) * uint64_t(i)); }
+	void get(I i, NBL_REF_ARG(V) val) NBL_CONST_MEMBER_FUNC { val = vk::RawBufferLoad<V>(addr + uint64_t(sizeof(V)) * uint64_t(i)); }
 	uint64_t addr;
 };
 
 struct BdaPdfAccessor
 {
 	template<typename V, typename I NBL_FUNC_REQUIRES(is_floating_point_v<V> && is_integral_v<I>)
-	void get(I i, NBL_REF_ARG(V) val) { val = vk::RawBufferLoad<V>(addr + uint64_t(sizeof(V)) * uint64_t(i)); }
+	void get(I i, NBL_REF_ARG(V) val) NBL_CONST_MEMBER_FUNC { val = vk::RawBufferLoad<V>(addr + uint64_t(sizeof(V)) * uint64_t(i)); }
 	uint64_t addr;
 };
 

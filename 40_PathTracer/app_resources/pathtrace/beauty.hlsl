@@ -185,8 +185,7 @@ enum E_SBT_OFFSETS : uint16_t
 
 NBL_CONSTEXPR_INLINE_NSPC_SCOPE_VAR float32_t MISWeightThreshold = hlsl::numeric_limits<float32_t>::min;
 //
-SEnvSample handleEnvmapHit(const float32_t3 L, const float otherTechniqueHeuristic
-)
+SEnvSample handleEnvmapHit(const float32_t3 L, const float otherTechniqueHeuristic)
 {
     SEnvSample _sample = sampleEnv(L); // TODO: L might need to have a spread factor
     if (otherTechniqueHeuristic>MISWeightThreshold)
