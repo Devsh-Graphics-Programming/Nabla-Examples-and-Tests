@@ -1,5 +1,6 @@
 #include "nbl/builtin/hlsl/cpp_compat.hlsl"
 #include <nbl/builtin/hlsl/ext/FullScreenTriangle/SVertexAttributes.hlsl>
+#include "nbl/builtin/hlsl/spirv_intrinsics/fragment_shader_pixel_interlock.hlsl"
 #include "nbl/builtin/hlsl/limits.hlsl"
 #include "app_resources/common.hlsl"
 
@@ -11,10 +12,14 @@ using namespace nbl::hlsl::ext::FullScreenTriangle;
 [shader("pixel")]
 float32_t4 PSMain(SVertexAttributes vxAttr, float32_t4 position : SV_Position) : SV_Target0
 {
+	spirv::execution_mode::PixelInterlockOrderedEXT();
+
 	const uint32_t pixelPos = _static_cast<uint32_t>(position.y) * pc.width + _static_cast<uint32_t>(position.x);
 	const uint64_t pixelBase = pc.bdaAddress + uint64_t(pixelPos) * (sizeof(Smlab) * 4);
     Smlab datas[4];
 	uint16_t validData = 0;
+	spirv::beginInvocationInterlockEXT();
+    {
 	for (uint32_t i = 0; i < 4; ++i)
     {
         datas[i] = vk::RawBufferLoad<Smlab>(pixelBase + i * sizeof(Smlab));
@@ -37,5 +42,8 @@ float32_t4 PSMain(SVertexAttributes vxAttr, float32_t4 position : SV_Position) :
 
 		 datas[i+1].colorDepth = _static_cast<uint32_t>(packUnorm4x8(merged));
 	}
+
 	return unpackUnorm4x8(int32_t(datas[validData - 1].colorDepth));
+    spirv::endInvocationInterlockEXT();
+	}
 }

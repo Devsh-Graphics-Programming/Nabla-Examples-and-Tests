@@ -335,6 +335,15 @@ class oitApp final : public SimpleWindowedApplication, public BuiltinResourcesAp
 			cmdbuf->drawIndexed(6, 3, 0, 0, 0);
 			cmdbuf->endRenderPass();
 		}
+
+		{
+			SMemoryBarrier memBarrier;
+			memBarrier.srcStageMask = PIPELINE_STAGE_FLAGS::FRAGMENT_SHADER_BIT;
+			memBarrier.srcAccessMask = ACCESS_FLAGS::SHADER_WRITE_BITS;
+			memBarrier.dstStageMask = PIPELINE_STAGE_FLAGS::VERTEX_INPUT_BITS;
+			memBarrier.dstAccessMask = ACCESS_FLAGS::MEMORY_READ_BITS;
+			cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, { .memBarriers = {&memBarrier, 1} });
+		}
 		//pass 2
 		{
 			cmdbuf->beginRenderPass(beginInfo, IGPUCommandBuffer::SUBPASS_CONTENTS::INLINE);
