@@ -8,6 +8,9 @@ if(NOT RES)
 endif()
 
 nbl_create_executable_project("" "" "${NBL_INCLUDE_SEARCH_DIRECTORIES}" "" "${NBL_EXECUTABLE_PROJECT_CREATION_PCH_TARGET}")
+find_package(nlohmann_json CONFIG REQUIRED)
+set_target_properties(nlohmann_json::nlohmann_json PROPERTIES MAP_IMPORTED_CONFIG_RELWITHDEBINFO Release)
+target_link_libraries(${EXECUTABLE_NAME} PRIVATE nlohmann_json::nlohmann_json)
 
 if(NBL_EMBED_BUILTIN_RESOURCES)
     set(_BR_TARGET_ ${EXECUTABLE_NAME}_builtinResourceData)
