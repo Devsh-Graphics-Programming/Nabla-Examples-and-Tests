@@ -30,6 +30,10 @@ if(TARGET Nabla::ext::FullScreenTriangle AND TARGET Nabla::ext::Cameras AND TARG
 	find_package(blake3 CONFIG REQUIRED)
 	find_package(nlohmann_json CONFIG REQUIRED)
 	find_package(gtl CONFIG REQUIRED)
+	set_target_properties(argparse::argparse PROPERTIES MAP_IMPORTED_CONFIG_RELWITHDEBINFO Release)
+	set_target_properties(gtl::gtl PROPERTIES MAP_IMPORTED_CONFIG_RELWITHDEBINFO Release)
+	set_target_properties(nlohmann_json::nlohmann_json PROPERTIES MAP_IMPORTED_CONFIG_RELWITHDEBINFO Release)
+	set_target_properties(BLAKE3::blake3 PROPERTIES MAP_IMPORTED_CONFIG_RELWITHDEBINFO Release)
 	target_link_libraries(${EXECUTABLE_NAME} PRIVATE argparse::argparse BLAKE3::blake3 nlohmann_json::nlohmann_json gtl::gtl)
 
 	# camera configs are read through the "app_resources" mount alias, so they must be embedded as builtins
