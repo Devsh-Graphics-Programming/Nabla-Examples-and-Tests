@@ -272,7 +272,7 @@ void WhittedTask::__impl_call()
             contribution += throughput*color;
     }
     else // miss
-        contribution += throughput*(rayDir.y<0.f ? float16_t3(_static_cast<float16_t>(0.1f),_static_cast<float16_t>(0.7f),_static_cast<float16_t>(0.03f)):float16_t3(_static_cast<float16_t>(0.05f),_static_cast<float16_t>(0.25f),_static_cast<float16_t>(1.0f)));
+        contribution += throughput*(rayDir.y<0.f ? _static_cast<float16_t3>(float32_t3(0.1f,0.7f,0.03f)):_static_cast<float16_t3>(float32_t3(0.05f,0.25f,1.0f)));
 
     if (contribution.r+contribution.g+contribution.b<1.f/2047.f)
         return;

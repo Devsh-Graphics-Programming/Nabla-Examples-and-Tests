@@ -138,7 +138,7 @@ void main()
     const int32_t2  pixel      = int32_t2(launchID.xy);
 
     // Seed varies per pixel AND per frame
-    const uint32_t pixelIndex = uint32_t(pixel.x) + uint32_t(pixel.y) * launchSize.x;
+    const uint32_t pixelIndex = launchID.x + launchID.y * launchSize.x;
     const uint32_t frameHash  = random::PCG32::construct(pc.accumulatedFrames)();
     random::PCG32  rng        = random::PCG32::construct(pixelIndex + frameHash);
 
