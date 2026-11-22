@@ -207,7 +207,7 @@ struct TestExecutor
 		// output.mortonSignedLess_emulated_4 = uint32_t4(morton_emulated_4_signed.lessThan<false>(Vec4BSignedFull)); 
 
 		// Cast to uint16_t which is what left shift for Mortons expect
-		uint16_t castedShift = uint16_t(input.shift);
+		uint16_t castedShift = _static_cast<uint16_t>(input.shift);
 		// Each left shift clamps to correct bits so the result kinda makes sense
 		// Left-shift
 		left_shift_operator<morton::code<false, smallBits_2, 2> > leftShiftSmall2;

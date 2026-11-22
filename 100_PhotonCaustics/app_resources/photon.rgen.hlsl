@@ -121,7 +121,7 @@ void main()
     random::PCG32 rng = random::PCG32::construct(s1 + s2);
 
     // Pick a light index randomly
-    const uint32_t        lIdx       = min(uint32_t(rnd(rng) * lightCount), lightCount - 1);
+    const uint32_t        lIdx       = min(_static_cast<uint32_t>(rnd(rng) * lightCount), lightCount - 1);
     const static uint64_t LightAlign = nbl::hlsl::alignment_of_v<SLight>;
     const SLight          light      = vk::BufferPointer <SLight, LightAlign>(pc.lightBuffer + lIdx * sizeof(SLight)).Get();
 

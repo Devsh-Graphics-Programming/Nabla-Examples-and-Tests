@@ -133,7 +133,8 @@ int32_t3 photonGridCoord(float32_t3 p, float32_t3 gridMin, float32_t3 gridInvCel
 
 uint32_t photonGridFlatten(int32_t3 c)
 {
-    return uint32_t((c.z * GRID_DIM + c.y) * GRID_DIM + c.x);
+    const uint32_t3 uc = _static_cast<uint32_t3>(c);
+    return (uc.z * GRID_DIM + uc.y) * GRID_DIM + uc.x;
 }
 #endif
 

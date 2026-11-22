@@ -37,7 +37,7 @@ void SnakeLoadStore(uint32_t3 threadID : SV_DispatchThreadID)
     ImageWriteInfo readWriteAddress = GetSnakeReadWriteAddress(threadID.xy);
     
     const uint32_t packed = vk::RawBufferLoad<uint32_t>(pc.deviceBufferAddress + readWriteAddress.bufferReadOffset);
-    dstImage[readWriteAddress.writePos] = unpackUnorm4x8(int32_t(packed));
+    dstImage[readWriteAddress.writePos] = unpackUnorm4x8(_static_cast<int32_t>(packed));
 }
 
 ImageWriteInfo GetMortonReadWriteAddress(uint32_t2 groupThreadID, uint32_t2 groupID)
@@ -56,7 +56,7 @@ ImageWriteInfo GetMortonReadWriteAddress(uint32_t2 groupThreadID, uint32_t2 grou
     const uint32_t2 dstTile = uint32_t2(packedDstTile & 0xffffu, packedDstTile >> 16u);
 
     morton::code<false, 4, 2> mc;
-    mc.value = uint16_t(localLinearIdx);
+    mc.value = _static_cast<uint16_t>(localLinearIdx);
     const uint32_t2 mortonLocalPos = _static_cast<uint32_t2>(mc);
     ret.writePos = pc.dstOffset + (dstTile << TILE_SIZE_LOG2) + (blockCoordInTile << BLOCK_SIZE_LOG2) + mortonLocalPos;
     return ret;
@@ -71,5 +71,5 @@ void MortonLoadStore(uint32_t3 groupThreadID : SV_GroupThreadID, uint32_t3 group
     // tile/block dimensions are powers of two, so shifts/masks are exact here.
     ImageWriteInfo readWriteAddress = GetMortonReadWriteAddress(groupThreadID.xy, groupID.xy);
     const uint32_t packed = vk::RawBufferLoad<uint32_t>(pc.deviceBufferAddress + readWriteAddress.bufferReadOffset);
-    dstImage[readWriteAddress.writePos] = unpackUnorm4x8(int32_t(packed));
+    dstImage[readWriteAddress.writePos] = unpackUnorm4x8(_static_cast<int32_t>(packed));
 }

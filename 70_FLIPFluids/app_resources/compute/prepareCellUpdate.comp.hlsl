@@ -48,7 +48,7 @@ void main(uint32_t3 ID : SV_DispatchThreadID)
     uint pid = ID.x;
     Particle p;
 
-    int offset = sizeof(float32_t3) * pid;
+    uint32_t offset = sizeof(float32_t3) * pid;
     p.position = vk::RawBufferLoad<float32_t3>(pc.particlePosAddress + offset);
     p.velocity = vk::RawBufferLoad<float32_t3>(pc.particleVelAddress + offset);
     

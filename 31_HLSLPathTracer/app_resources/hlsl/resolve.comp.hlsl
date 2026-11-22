@@ -20,7 +20,7 @@ struct SCascadeAccessor
         SCascadeAccessor retval;
         uint32_t imgWidth, imgHeight, layers;
         cascade.GetDimensions(imgWidth, imgHeight, layers);
-        retval.cascadeImageDimension = int16_t2(imgWidth, imgHeight);
+        retval.cascadeImageDimension = _static_cast<int16_t2>(uint32_t2(imgWidth, imgHeight));
         return retval;
     }
 
@@ -60,7 +60,7 @@ void resolve(uint32_t3 threadID : SV_DispatchThreadID)
     SResolveAccessorAdaptorType accessor = { SCascadeAccessor::create() };
     SResolverType resolve = SResolverType::create(pc.resolveParameters);
 
-    float32_t3 color = resolve(accessor, uint16_t2(coords.x, coords.y));
+    float32_t3 color = resolve(accessor, _static_cast<uint16_t2>(coords));
 
     outImage[uint3(coords.x, coords.y, 0)] = float32_t4(color, 1.0f);
 }

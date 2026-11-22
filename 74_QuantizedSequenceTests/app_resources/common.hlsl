@@ -91,40 +91,40 @@ struct QuantizedSequenceTestExecutor
         }
         {
             sampling::QuantizedSequence<uint32_t, 2> qs = sampling::QuantizedSequence<uint32_t, 2>::create(input.uvec2);
-            for (uint32_t i = 0; i < 2; i++)
-                output.uintDim2[i] = qs.get(i);
+            for (int32_t i = 0; i < 2; i++)
+                output.uintDim2[_static_cast<uint32_t>(i)] = qs.get(_static_cast<uint16_t>(i));
         }
         {
             sampling::QuantizedSequence<uint32_t, 3> qs = sampling::QuantizedSequence<uint32_t, 3>::create(input.uvec3);
-            for (uint32_t i = 0; i < 3; i++)
-                output.uintDim3[i] = qs.get(i);
+            for (int32_t i = 0; i < 3; i++)
+                output.uintDim3[_static_cast<uint32_t>(i)] = qs.get(_static_cast<uint16_t>(i));
         }
         {
             sampling::QuantizedSequence<uint32_t, 4> qs = sampling::QuantizedSequence<uint32_t, 4>::create(input.uvec4);
-            for (uint32_t i = 0; i < 4; i++)
-                output.uintDim4[i] = qs.get(i);
+            for (int32_t i = 0; i < 4; i++)
+                output.uintDim4[_static_cast<uint32_t>(i)] = qs.get(_static_cast<uint16_t>(i));
         }
 
         {
             sampling::QuantizedSequence<uint32_t2, 2> qs = sampling::QuantizedSequence<uint32_t2, 2>::create(input.uvec2);
-            for (uint32_t i = 0; i < 2; i++)
-                output.uintVec2_Dim2[i] = qs.get(i);
+            for (int32_t i = 0; i < 2; i++)
+                output.uintVec2_Dim2[_static_cast<uint32_t>(i)] = qs.get(_static_cast<uint16_t>(i));
         }
         {
             sampling::QuantizedSequence<uint32_t2, 3> qs = sampling::QuantizedSequence<uint32_t2, 3>::create(input.uvec3);
-            for (uint32_t i = 0; i < 3; i++)
-                output.uintVec2_Dim3[i] = qs.get(i);
+            for (int32_t i = 0; i < 3; i++)
+                output.uintVec2_Dim3[_static_cast<uint32_t>(i)] = qs.get(_static_cast<uint16_t>(i));
         }
 
         {
             sampling::QuantizedSequence<uint32_t3, 3> qs = sampling::QuantizedSequence<uint32_t3, 3>::create(input.uvec3);
-            for (uint32_t i = 0; i < 3; i++)
-                output.uintVec3_Dim3[i] = qs.get(i);
+            for (int32_t i = 0; i < 3; i++)
+                output.uintVec3_Dim3[_static_cast<uint32_t>(i)] = qs.get(_static_cast<uint16_t>(i));
         }
         {
             sampling::QuantizedSequence<uint32_t4, 4> qs = sampling::QuantizedSequence<uint32_t4, 4>::create(input.uvec4);
-            for (uint32_t i = 0; i < 4; i++)
-                output.uintVec4_Dim4[i] = qs.get(i);
+            for (int32_t i = 0; i < 4; i++)
+                output.uintVec4_Dim4[_static_cast<uint32_t>(i)] = qs.get(_static_cast<uint16_t>(i));
         }
 
         // u16
@@ -134,40 +134,40 @@ struct QuantizedSequenceTestExecutor
         }
         {
             sampling::QuantizedSequence<uint16_t, 2> qs = sampling::QuantizedSequence<uint16_t, 2>::create(input.u16vec2);
-            for (uint32_t i = 0; i < 2; i++)
-                output.u16Dim2[i] = qs.get(i);
+            for (int32_t i = 0; i < 2; i++)
+                output.u16Dim2[_static_cast<uint32_t>(i)] = qs.get(_static_cast<uint16_t>(i));
         }
         {
             sampling::QuantizedSequence<uint16_t, 3> qs = sampling::QuantizedSequence<uint16_t, 3>::create(input.u16vec3);
-            for (uint32_t i = 0; i < 3; i++)
-                output.u16Dim3[i] = qs.get(i);
+            for (int32_t i = 0; i < 3; i++)
+                output.u16Dim3[_static_cast<uint32_t>(i)] = qs.get(_static_cast<uint16_t>(i));
         }
         {
             sampling::QuantizedSequence<uint16_t, 4> qs = sampling::QuantizedSequence<uint16_t, 4>::create(input.u16vec4);
-            for (uint32_t i = 0; i < 4; i++)
-                output.u16Dim4[i] = qs.get(i);
+            for (int32_t i = 0; i < 4; i++)
+                output.u16Dim4[_static_cast<uint32_t>(i)] = qs.get(_static_cast<uint16_t>(i));
         }
 
         {
             sampling::QuantizedSequence<uint16_t2, 2> qs = sampling::QuantizedSequence<uint16_t2, 2>::create(input.u16vec2);
-            for (uint32_t i = 0; i < 2; i++)
-                output.u16Vec2_Dim2[i] = qs.get(i);
+            for (int32_t i = 0; i < 2; i++)
+                output.u16Vec2_Dim2[_static_cast<uint32_t>(i)] = qs.get(_static_cast<uint16_t>(i));
         }
         {
             sampling::QuantizedSequence<uint16_t2, 4> qs = sampling::QuantizedSequence<uint16_t2, 4>::create(input.u16vec4);
-            for (uint32_t i = 0; i < 4; i++)
-                output.u16Vec2_Dim4[i] = qs.get(i);
+            for (int32_t i = 0; i < 4; i++)
+                output.u16Vec2_Dim4[_static_cast<uint32_t>(i)] = qs.get(_static_cast<uint16_t>(i));
         }
 
         {
             sampling::QuantizedSequence<uint16_t3, 3> qs = sampling::QuantizedSequence<uint16_t3, 3>::create(input.u16vec3);
-            for (uint32_t i = 0; i < 3; i++)
-                output.u16Vec3_Dim3[i] = qs.get(i);
+            for (int32_t i = 0; i < 3; i++)
+                output.u16Vec3_Dim3[_static_cast<uint32_t>(i)] = qs.get(_static_cast<uint16_t>(i));
         }
         {
             sampling::QuantizedSequence<uint16_t4, 4> qs = sampling::QuantizedSequence<uint16_t4, 4>::create(input.u16vec4);
-            for (uint32_t i = 0; i < 4; i++)
-                output.u16Vec4_Dim4[i] = qs.get(i);
+            for (int32_t i = 0; i < 4; i++)
+                output.u16Vec4_Dim4[_static_cast<uint32_t>(i)] = qs.get(_static_cast<uint16_t>(i));
         }
 
         // test encode/decode uint32, dim 1..4

@@ -6,13 +6,15 @@
 #include "nbl/builtin/hlsl/random/pcg.hlsl"
 #include "nbl/builtin/hlsl/type_traits.hlsl"
 
+using namespace nbl::hlsl;
+
 NBL_CONSTEXPR uint32_t WorkgroupSize = 16;
 NBL_CONSTEXPR uint32_t MAX_UNORM_10 = 1023;
 NBL_CONSTEXPR uint32_t MAX_UNORM_22 = 4194303;
 
 inline uint32_t packUnorm10(float32_t v)
 {
-    return trunc(v * float32_t(MAX_UNORM_10) + 0.5f);
+    return _static_cast<uint32_t>(trunc(v * float32_t(MAX_UNORM_10) + 0.5f));
 }
 
 inline float32_t unpackUnorm10(uint32_t packed)
@@ -23,7 +25,7 @@ inline float32_t unpackUnorm10(uint32_t packed)
 inline uint32_t packUnorm22(float32_t v)
 {
     const float maxValue = float32_t(MAX_UNORM_22);
-    return trunc(v * maxValue + 0.5f);
+    return _static_cast<uint32_t>(trunc(v * maxValue + 0.5f));
 }
 
 inline float32_t unpackUnorm22(uint32_t packed)
@@ -189,7 +191,7 @@ struct [raypayload] OcclusionPayload
 
 struct MaterialId
 {
-    const static uint32_t PROCEDURAL_FLAG = (1 << 31);
+    const static uint32_t PROCEDURAL_FLAG = (1u << 31);
     const static uint32_t PROCEDURAL_MASK = ~PROCEDURAL_FLAG;
 
     uint32_t data;
@@ -275,7 +277,7 @@ float3 unpackNormals3x10(uint32_t v)
 {
     // host side changes float32_t3 to EF_A2B10G10R10_SNORM_PACK32
     // follows unpacking scheme from https://github.com/KhronosGroup/SPIRV-Cross/blob/main/reference/shaders-hlsl/frag/unorm-snorm-packing.frag
-    int signedValue = int(v);
+    int signedValue = _static_cast<int>(v);
     int3 pn = int3(signedValue << 22, signedValue << 12, signedValue << 2) >> 22;
     return clamp(float3(pn) / 511.0, -1.0, 1.0);
 }
