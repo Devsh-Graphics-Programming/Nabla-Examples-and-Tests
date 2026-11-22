@@ -3,6 +3,10 @@
 
 
 #include "nbl/examples/examples.hpp"
+#include "nbl/ext/Cameras/CCameraMathUtilities.hpp"
+#include "nbl/ext/Cameras/CCameraMouseKeyboardController.hpp"
+#include "nbl/ext/Cameras/CCameraMouseKeyboardPresets.hpp"
+#include "nbl/ext/Cameras/CFPSCamera.hpp"
 
 using namespace nbl;
 using namespace core;

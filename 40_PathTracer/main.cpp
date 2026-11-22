@@ -512,15 +512,10 @@ class PathTracingApp final : public SimpleWindowedApplication, public BuiltinRes
 			} capturedEvents;
 
 //			const auto& io = ImGui::GetIO();
-			static std::chrono::microseconds previousEventTimestamp{};
 			m_mouse.consumeEvents([&](const IMouseEventChannel::range_t& events) -> void
 				{
 					for (const auto& e : events) // here capture
 					{
-						if (e.timeStamp < previousEventTimestamp)
-							continue;
-
-						previousEventTimestamp = e.timeStamp;
 						capturedEvents.mouse.emplace_back(e);
 
 					}
@@ -530,10 +525,6 @@ class PathTracingApp final : public SimpleWindowedApplication, public BuiltinRes
 				{
 					for (const auto& e : events) // here capture
 					{
-						if (e.timeStamp < previousEventTimestamp)
-							continue;
-
-						previousEventTimestamp = e.timeStamp;
 						capturedEvents.keyboard.emplace_back(e);
 					}
 				}, m_logger.get()

@@ -6,6 +6,10 @@
 
 #include "common.hpp"
 
+#ifdef NBL_BUILD_DEBUG_DRAW
+#include "nbl/ext/DebugDraw/CDrawAABB.h"
+#endif
+
 class GeometryCreatorApp final : public MonoWindowApplication, public BuiltinResourcesApplication
 {
 	using device_base_t = MonoWindowApplication;
@@ -46,7 +50,7 @@ class GeometryCreatorApp final : public MonoWindowApplication, public BuiltinRes
 				},
 				CSimpleDebugRenderer::DefaultPolygonGeometryPatch // we want to use the vertex data through UTBs
 			);
-			
+
 			auto scRes = static_cast<CDefaultSwapchainFramebuffers*>(m_surface->getSwapchainResources());
 			const auto& geometries = m_scene->getInitParams().geometries;
 			m_renderer = CSimpleDebugRenderer::create(m_assetMgr.get(),scRes->getRenderpass(),0,{&geometries.front().get(),geometries.size()});
@@ -70,13 +74,45 @@ class GeometryCreatorApp final : public MonoWindowApplication, public BuiltinRes
 				float32_t4(0,0,1,0)
 			);
 
-			// camera
+#ifdef NBL_BUILD_DEBUG_DRAW
 			{
-				core::vectorSIMDf cameraPosition(-5.81655884, 2.58630896, -4.23974705);
-				core::vectorSIMDf cameraTarget(-0.349590302, -0.213266611, 0.317821503);
-				float32_t4x4 projectionMatrix = hlsl::math::thin_lens::lhPerspectiveFovMatrix<float>(core::radians(60.0f), float(m_initialResolution.x) / m_initialResolution.y, 0.1f, 10000.0f);
-				camera = Camera(cameraPosition, cameraTarget, projectionMatrix, 1.069f, 0.4f);
+				ext::debug_draw::DrawAABB::SCreationParameters params = {};
+				params.assetManager = m_assetMgr;
+				params.transfer = getTransferUpQueue();
+				params.drawMode = ext::debug_draw::DrawAABB::ADM_DRAW_BATCH;
+				params.batchPipelineLayout = ext::debug_draw::DrawAABB::createDefaultPipelineLayout(m_device.get());
+				params.renderpass = smart_refctd_ptr<IGPURenderpass>(scRes->getRenderpass());
+				params.depthCompareOp = asset::ECO_GREATER;
+				params.utilities = m_utils;
+				m_drawAABB = ext::debug_draw::DrawAABB::create(std::move(params));
+				if (!m_drawAABB)
+					return logFail("Could not create the axis renderer!");
+
+				const auto addBox = [&](const float32_t3& minVx, const float32_t3& maxVx, const float32_t4& color) -> void
+				{
+					const auto transform = ext::debug_draw::DrawAABB::getTransformFromAABB(hlsl::shapes::AABB<3,float>{minVx, maxVx});
+					auto& instance = m_axisInstances.emplace_back();
+					instance.transform = float32_t4x4(transform[0], transform[1], transform[2], float32_t4(0.f, 0.f, 0.f, 1.f));
+					instance.color = color;
+				};
+				const auto addAxis = [&](const float32_t3& axis, const float32_t4& color) -> void
+				{
+					constexpr float AxisLength = 3.f;
+					constexpr float ShaftHalfWidth = 0.04f;
+					constexpr float HeadLength = 0.4f;
+					constexpr float HeadHalfWidth = 0.14f;
+					const auto across = float32_t3(1.f) - axis;
+					addBox(-across * ShaftHalfWidth, axis * AxisLength + across * ShaftHalfWidth, color);
+					addBox(axis * (AxisLength - HeadLength) - across * HeadHalfWidth, axis * AxisLength + across * HeadHalfWidth, color);
+				};
+				addAxis(float32_t3(1.f, 0.f, 0.f), float32_t4(1.f, 0.f, 0.f, 1.f));
+				addAxis(float32_t3(0.f, 1.f, 0.f), float32_t4(0.f, 1.f, 0.f, 1.f));
+				addAxis(float32_t3(0.f, 0.f, 1.f), float32_t4(0.f, 0.f, 1.f, 1.f));
 			}
+#endif
+
+			if (!setupCamera(0u, ECameraRig::FPS))
+				return logFail("Could not initialize camera orientation!");
 
 			onAppInitializedFinish();
 			return true;
@@ -94,24 +130,45 @@ class GeometryCreatorApp final : public MonoWindowApplication, public BuiltinRes
 			cb->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
 			cb->beginDebugMarker("GeometryCreatorApp Frame");
 			{
-				camera.beginInputProcessing(nextPresentationTimestamp);
-				mouse.consumeEvents([&](const IMouseEventChannel::range_t& events) -> void { camera.mouseProcess(events); mouseProcess(events); }, m_logger.get());
-				keyboard.consumeEvents([&](const IKeyboardEventChannel::range_t& events) -> void { camera.keyboardProcess(events); }, m_logger.get());
-				camera.endInputProcessing(nextPresentationTimestamp);
+				std::vector<ui::SMouseEvent> mouseEvents;
+				std::vector<ui::SKeyboardEvent> keyboardEvents;
+
+				mouse.consumeEvents([&](const IMouseEventChannel::range_t& events) -> void { mouseEvents.insert(mouseEvents.end(), events.begin(), events.end()); }, m_logger.get());
+				keyboard.consumeEvents([&](const IKeyboardEventChannel::range_t& events) -> void { keyboardEvents.insert(keyboardEvents.end(), events.begin(), events.end()); }, m_logger.get());
+
+				mouseProcess({ mouseEvents.data(), mouseEvents.size() });
+
+				auto worldCoordinateSystemIndex = m_worldCoordinateSystemIndex;
+				auto rig = m_rig;
+				for (const auto& ev : keyboardEvents)
+				{
+					if (ev.action != ui::SKeyboardEvent::ECA_RELEASED)
+						continue;
+					if (ev.keyCode == ui::EKC_H)
+						worldCoordinateSystemIndex = (worldCoordinateSystemIndex + 1u) % WorldCoordinateSystemCount;
+					if (ev.keyCode == ui::EKC_C)
+						rig = rig == ECameraRig::FPS ? ECameraRig::Orbit : ECameraRig::FPS;
+				}
+				if (worldCoordinateSystemIndex != m_worldCoordinateSystemIndex || rig != m_rig)
+				{
+					cameraController.reset();
+					setupCamera(worldCoordinateSystemIndex, rig);
+				}
+
+				const auto controls = cameraController.collect(nextPresentationTimestamp, keyboardEvents, mouseEvents);
+				camera->manipulate(controls);
 			}
 
 
 			asset::SViewport viewport;
 			{
-				viewport.minDepth = 1.f;
-				viewport.maxDepth = 0.f;
 				viewport.x = 0u;
 				viewport.y = 0u;
 				viewport.width = m_window->getWidth();
 				viewport.height = m_window->getHeight();
 			}
 			cb->setViewport(0u, 1u, &viewport);
-		
+
 			VkRect2D scissor =
 			{
 				.offset = { 0, 0 },
@@ -140,13 +197,23 @@ class GeometryCreatorApp final : public MonoWindowApplication, public BuiltinRes
 				cb->beginRenderPass(info, IGPUCommandBuffer::SUBPASS_CONTENTS::INLINE);
 			}
 
-			float32_t3x4 viewMatrix = camera.getViewMatrix();
-			float32_t4x4 viewProjMatrix = camera.getConcatenatedMatrix();
+			const auto viewMatrix = hlsl::float32_t3x4(camera->getGimbal().getViewMatrix());
+			const auto viewProjMatrix = hlsl::math::linalg::promoted_mul(cameraProjection, viewMatrix);
 			const auto viewParams = CSimpleDebugRenderer::SViewParams(viewMatrix,viewProjMatrix);
 
 			// tear down scene every frame
 			m_renderer->m_instances[0].packedGeo = m_renderer->getGeometries().data()+gcIndex;
  			m_renderer->render(cb,viewParams);
+
+#ifdef NBL_BUILD_DEBUG_DRAW
+			{
+				const ISemaphore::SWaitInfo drawFinished = { .semaphore = m_semaphore.get(), .value = m_realFrameIx + 1u };
+				ext::debug_draw::DrawAABB::DrawParameters drawParams;
+				drawParams.commandBuffer = cb;
+				drawParams.cameraMat = viewProjMatrix;
+				m_drawAABB->render(drawParams, drawFinished, m_axisInstances);
+			}
+#endif
 
 			cb->endRenderPass();
 			cb->endDebugMarker();
@@ -188,12 +255,17 @@ class GeometryCreatorApp final : public MonoWindowApplication, public BuiltinRes
 			{
 				caption += ", displaying [";
 				caption += m_scene->getInitParams().geometryNames[gcIndex];
-				caption += "]";
+				caption += "] | H: ";
+				caption += WorldCoordinateSystems[m_worldCoordinateSystemIndex].name;
+				caption += " world, expect ";
+				caption += WorldCoordinateSystems[m_worldCoordinateSystemIndex].expectation;
+				caption += " | C: ";
+				caption += m_rig == ECameraRig::FPS ? "FPS camera (WASD, mouse)" : "orbit camera (mouse, Q/E distance)";
 				m_window->setCaption(caption);
 			}
 			return retval;
 		}
-		
+
 	protected:
 		const video::IGPURenderpass::SCreationParams::SSubpassDependency* getDefaultSubpassDependencies() const override
 		{
@@ -206,7 +278,7 @@ class GeometryCreatorApp final : public MonoWindowApplication, public BuiltinRes
 					.memoryBarrier = {
 						// last place where the depth can get modified in previous frame, `COLOR_ATTACHMENT_OUTPUT_BIT` is implicitly later
 						.srcStageMask = PIPELINE_STAGE_FLAGS::LATE_FRAGMENT_TESTS_BIT,
-						// don't want any writes to be available, we'll clear 
+						// don't want any writes to be available, we'll clear
 						.srcAccessMask = ACCESS_FLAGS::NONE,
 						// destination needs to wait as early as possible
 						// TODO: `COLOR_ATTACHMENT_OUTPUT_BIT` shouldn't be needed, because its a logically later stage, see TODO in `ECommonEnums.h`
@@ -247,16 +319,89 @@ class GeometryCreatorApp final : public MonoWindowApplication, public BuiltinRes
 		InputSystem::ChannelReader<IKeyboardEventChannel> keyboard;
 
 		//
-		Camera camera = Camera(core::vectorSIMDf(0, 0, 0), core::vectorSIMDf(0, 0, 0), hlsl::float32_t4x4());
+		core::smart_refctd_ptr<ext::cameras::ICamera> camera;
+		ext::cameras::CCameraMouseKeyboardController cameraController;
+		hlsl::float32_t4x4 cameraProjection = hlsl::float32_t4x4(1.0f);
+
+		struct SWorldCoordinateSystem
+		{
+			const char* name;
+			const char* expectation;
+			ext::cameras::SWorldFrame frame;
+		};
+		static inline const SWorldCoordinateSystem WorldCoordinateSystems[] = {
+			{ "Y-up LH", "red +X right, green +Y up, blue +Z away from you", ext::cameras::SWorldFrame::yUpLeftHanded() },
+			{ "Y-up RH", "red +X right, green +Y up, blue +Z toward you", ext::cameras::SWorldFrame::yUpRightHanded() },
+			{ "Z-up RH", "red +X right, blue +Z up, green +Y away from you", ext::cameras::SWorldFrame::zUpRightHanded() },
+		};
+		static inline constexpr uint32_t WorldCoordinateSystemCount = sizeof(WorldCoordinateSystems) / sizeof(WorldCoordinateSystems[0]);
+		enum class ECameraRig : uint8_t { FPS, Orbit };
+		uint32_t m_worldCoordinateSystemIndex = 0u;
+		ECameraRig m_rig = ECameraRig::FPS;
+
+#ifdef NBL_BUILD_DEBUG_DRAW
+		smart_refctd_ptr<ext::debug_draw::DrawAABB> m_drawAABB;
+		std::vector<ext::debug_draw::InstanceData> m_axisInstances;
+#endif
 
 		uint16_t gcIndex = {};
 
-		void mouseProcess(const nbl::ui::IMouseEventChannel::range_t& events)
+		static void getTestPose(const ext::cameras::SWorldFrame& frame, hlsl::float64_t3& outPosition, hlsl::float64_t3& outTarget)
 		{
-			for (auto eventIt = events.begin(); eventIt != events.end(); eventIt++)
-			{
-				auto ev = *eventIt;
+			outPosition = frame.forward * -7.0 + frame.right * -3.0 + frame.up * 3.0;
+			outTarget = hlsl::float64_t3(0.0);
+		}
 
+		bool setupCamera(const uint32_t worldCoordinateSystemIndex, const ECameraRig rig)
+		{
+			using namespace ext::cameras;
+			m_worldCoordinateSystemIndex = worldCoordinateSystemIndex;
+			m_rig = rig;
+			const auto& frame = WorldCoordinateSystems[worldCoordinateSystemIndex].frame;
+
+			hlsl::float64_t3 cameraPosition, cameraTarget;
+			getTestPose(frame, cameraPosition, cameraTarget);
+			const auto aspectRatio = float(m_initialResolution.x) / m_initialResolution.y;
+			if (frame.handedness == ECameraHandedness::LeftHanded)
+				cameraProjection = hlsl::math::thin_lens::lhPerspectiveFovMatrix<float>(core::radians(60.0f), aspectRatio, 10000.0f, 0.1f);
+			else
+				cameraProjection = hlsl::math::thin_lens::rhPerspectiveFovMatrix<float>(core::radians(60.0f), aspectRatio, 10000.0f, 0.1f);
+
+			if (rig == ECameraRig::FPS)
+			{
+				camera = core::make_smart_refctd_ptr<CFPSCamera>(cameraPosition, hlsl::math::quaternion<hlsl::float64_t>::identity(), frame);
+				if (!camera->setLookAt(cameraPosition, cameraTarget, frame.up))
+					return false;
+			}
+			else
+				camera = core::make_smart_refctd_ptr<COrbitCamera>(cameraPosition, cameraTarget, frame);
+
+			auto& binding = cameraController.binding;
+			binding = CCameraMouseKeyboardPresets::makeDefaultBinding(*camera);
+			if (rig == ECameraRig::Orbit)
+			{
+				const auto gain = binding[ECameraControlAxis::RotateX].mouseMovementGain.x;
+				binding[ECameraControlAxis::RotateY].mouseMovementGain = hlsl::float64_t2(gain, 0.0);
+				binding[ECameraControlAxis::RotateX].mouseMovementGain = hlsl::float64_t2(0.0, gain);
+				binding[ECameraControlAxis::Distance].mouseScrollGain = hlsl::float64_t2(0.0);
+			}
+			binding.scaleSensitivity(ECameraControlAxis::Translate, 1.069);
+			binding.scaleSensitivity(ECameraControlAxis::Rotate, 0.4);
+			binding.setMouseMovementGate(ECameraControlAxis::Rotate, ui::EMB_LEFT_BUTTON);
+
+			const auto basis = camera->getBasis();
+			m_logger->log("%s %s: right = (% .3f, % .3f, % .3f) up = (% .3f, % .3f, % .3f) forward = (% .3f, % .3f, % .3f)",
+				system::ILogger::ELL_INFO, WorldCoordinateSystems[worldCoordinateSystemIndex].name, camera->getIdentifier().data(),
+				basis.right.x, basis.right.y, basis.right.z,
+				basis.up.x, basis.up.y, basis.up.z,
+				basis.forward.x, basis.forward.y, basis.forward.z);
+			return true;
+		}
+
+		void mouseProcess(std::span<const nbl::ui::SMouseEvent> events)
+		{
+			for (const auto& ev : events)
+			{
 				if (ev.type==nbl::ui::SMouseEvent::EET_SCROLL && m_renderer)
 				{
 					gcIndex += int16_t(core::sign(ev.scrollEvent.verticalScroll));

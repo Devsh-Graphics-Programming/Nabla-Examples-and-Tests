@@ -6,7 +6,10 @@
 // common api
 #include "nbl/examples/common/SimpleWindowedApplication.hpp"
 #include "nbl/examples/examples.hpp"
-#include "nbl/examples/cameras/CCamera.hpp"
+#include "nbl/ext/Cameras/CCameraMathUtilities.hpp"
+#include "nbl/ext/Cameras/CCameraMouseKeyboardController.hpp"
+#include "nbl/ext/Cameras/CCameraMouseKeyboardPresets.hpp"
+#include "nbl/ext/Cameras/CFPSCamera.hpp"
 #include "nbl/examples/common/CEventCallback.hpp"
 
 // example's own headers

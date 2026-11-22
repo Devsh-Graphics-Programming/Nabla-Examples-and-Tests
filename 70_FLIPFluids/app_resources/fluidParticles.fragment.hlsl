@@ -22,8 +22,7 @@ float4 main(PSInput input, out float depthTest : SV_DEPTHGREATEREQUAL) : SV_TARG
     float4 pixelPos = float4(input.vsSpherePos + N * input.radius, 1.0);
     float4 clipSpacePos = mul(camParams.P, pixelPos);
 
-    // invert, because reverse z-buffer
-    depthTest = 1.0 - clipSpacePos.z / clipSpacePos.w;
+    depthTest = clipSpacePos.z / clipSpacePos.w;
 
     float4 outColor = input.color;
    

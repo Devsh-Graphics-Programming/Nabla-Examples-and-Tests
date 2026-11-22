@@ -14,7 +14,7 @@
 #include "nbl/builtin/hlsl/bxdf/transmission.hlsl"
 #include "nbl/builtin/hlsl/bxdf/bxdf_traits.hlsl"
 #include "nbl/builtin/hlsl/colorspace/encodeCIEXYZ.hlsl"
-#include "nbl/builtin/hlsl/testing/relative_approx_compare.hlsl"
+#include "nbl/builtin/hlsl/approx/abs_rel.hlsl"
 
 using namespace nbl;
 using namespace hlsl;
@@ -88,7 +88,7 @@ struct SBxDFTestResources
         bitangent = nbl::hlsl::normalize<float32_t3>(bitangent);
 
         const float angle = 2.0f * numbers::pi<float> * ConvertToFloat01<uint32_t>::__call(retval.rng());
-        math::quaternion<float> rot = math::quaternion<float>::create(retval.N, angle);
+        math::quaternion<float> rot = math::quaternion<float>::createFromAxisAngle(retval.N, angle);
         retval.T = rot.transformVector(tangent);
         retval.B = rot.transformVector(bitangent);
 

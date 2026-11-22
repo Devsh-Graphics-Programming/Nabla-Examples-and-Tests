@@ -244,7 +244,7 @@ class MaterialCompilerTest final : public application_templates::MonoDeviceAppli
 							emitter->profile.wrapU = ISampler::E_TEXTURE_CLAMP::ETC_CLAMP_TO_EDGE;
 							emitter->profile.wrapV = ISampler::E_TEXTURE_CLAMP::ETC_CLAMP_TO_EDGE;
 							emitter->profile.wrapW = ISampler::E_TEXTURE_CLAMP::ETC_CLAMP_TO_EDGE;
-							emitter->profileTransform = hlsl::_static_cast<hlsl::float32_t3x3>(hlsl::math::quaternion<float32_t>::create(hlsl::normalize(hlsl::float32_t3(1.f,1.f,1.f)), 3.14159f*0.25f, 1.f));
+							emitter->profileTransform = hlsl::_static_cast<hlsl::float32_t3x3>(hlsl::math::quaternion<float32_t>::createFromAxisAngle(hlsl::normalize(hlsl::float32_t3(1.f,1.f,1.f)), 3.14159f*0.25f, 1.f));
 							mul->lhs = emitterH;
 						}
 						// we multiply the unit emitter by the emission color value we actually want

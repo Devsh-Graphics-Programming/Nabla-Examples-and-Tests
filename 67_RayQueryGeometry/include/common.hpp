@@ -2,6 +2,10 @@
 #define _NBL_THIS_EXAMPLE_COMMON_H_INCLUDED_
 
 #include "nbl/examples/examples.hpp"
+#include "nbl/ext/Cameras/CCameraMathUtilities.hpp"
+#include "nbl/ext/Cameras/CCameraMouseKeyboardController.hpp"
+#include "nbl/ext/Cameras/CCameraMouseKeyboardPresets.hpp"
+#include "nbl/ext/Cameras/CFPSCamera.hpp"
 
 using namespace nbl;
 using namespace nbl::core;

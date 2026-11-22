@@ -21,8 +21,16 @@ private:
     {
         std::uniform_real_distribution<float> realDistribution(-100.0f, 100.0f);
         std::uniform_real_distribution<float> realDistributionSmall(1.0f, 4.0f);
+        // domain of `asin`, `acos` and `atanh`, anything outside gives NaN
+        std::uniform_real_distribution<float> realDistributionNegOneToOne(-1.0f, 1.0f);
+        // keeps `tan` away from its poles at +-pi/2
+        std::uniform_real_distribution<float> realDistributionTan(-1.3f, 1.3f);
         std::uniform_int_distribution<int> intDistribution(-100, 100);
         std::uniform_int_distribution<int> coinFlipDistribution(0, 1);
+        auto roundEvenInput = [&]() -> float
+            {
+                return coinFlipDistribution(getRandomEngine()) ? realDistributionSmall(getRandomEngine()) : (static_cast<float32_t>(intDistribution(getRandomEngine()) / 2) + 0.5f);
+            };
 
         TgmathIntputTestValues testInput;
         testInput.floor = realDistribution(getRandomEngine());
@@ -39,21 +47,21 @@ private:
         testInput.sqrt = realDistribution(getRandomEngine());
         testInput.sin = realDistribution(getRandomEngine());
         testInput.cos = realDistribution(getRandomEngine());
-        testInput.tan = realDistribution(getRandomEngine());
-        testInput.asin = realDistribution(getRandomEngine());
+        testInput.tan = realDistributionTan(getRandomEngine());
+        testInput.asin = realDistributionNegOneToOne(getRandomEngine());
         testInput.atan = realDistribution(getRandomEngine());
         testInput.sinh = realDistribution(getRandomEngine());
         testInput.cosh = realDistribution(getRandomEngine());
         testInput.tanh = realDistribution(getRandomEngine());
         testInput.asinh = realDistribution(getRandomEngine());
         testInput.acosh = realDistribution(getRandomEngine());
-        testInput.atanh = realDistribution(getRandomEngine());
+        testInput.atanh = realDistributionNegOneToOne(getRandomEngine());
         testInput.atan2X = realDistribution(getRandomEngine());
         testInput.atan2Y = realDistribution(getRandomEngine());
-        testInput.acos = realDistribution(getRandomEngine());
+        testInput.acos = realDistributionNegOneToOne(getRandomEngine());
         testInput.modf = realDistribution(getRandomEngine());
         testInput.round = realDistribution(getRandomEngine());
-        testInput.roundEven = coinFlipDistribution(getRandomEngine()) ? realDistributionSmall(getRandomEngine()) : (static_cast<float32_t>(intDistribution(getRandomEngine()) / 2) + 0.5f);
+        testInput.roundEven = roundEvenInput();
         testInput.trunc = realDistribution(getRandomEngine());
         testInput.ceil = realDistribution(getRandomEngine());
         testInput.fmaX = realDistribution(getRandomEngine());
@@ -78,19 +86,26 @@ private:
         testInput.sqrtVec = float32_t3(realDistribution(getRandomEngine()), realDistribution(getRandomEngine()), realDistribution(getRandomEngine()));
         testInput.sinVec = float32_t3(realDistribution(getRandomEngine()), realDistribution(getRandomEngine()), realDistribution(getRandomEngine()));
         testInput.cosVec = float32_t3(realDistribution(getRandomEngine()), realDistribution(getRandomEngine()), realDistribution(getRandomEngine()));
-        testInput.tanVec = float32_t3(realDistribution(getRandomEngine()), realDistribution(getRandomEngine()), realDistribution(getRandomEngine()));
-        testInput.asinVec = float32_t3(realDistribution(getRandomEngine()), realDistribution(getRandomEngine()), realDistribution(getRandomEngine()));
+        testInput.tanVec = float32_t3(realDistributionTan(getRandomEngine()), realDistributionTan(getRandomEngine()), realDistributionTan(getRandomEngine()));
+        testInput.asinVec = float32_t3(realDistributionNegOneToOne(getRandomEngine()), realDistributionNegOneToOne(getRandomEngine()), realDistributionNegOneToOne(getRandomEngine()));
         testInput.atanVec = float32_t3(realDistribution(getRandomEngine()), realDistribution(getRandomEngine()), realDistribution(getRandomEngine()));
         testInput.sinhVec = float32_t3(realDistribution(getRandomEngine()), realDistribution(getRandomEngine()), realDistribution(getRandomEngine()));
         testInput.coshVec = float32_t3(realDistribution(getRandomEngine()), realDistribution(getRandomEngine()), realDistribution(getRandomEngine()));
         testInput.tanhVec = float32_t3(realDistribution(getRandomEngine()), realDistribution(getRandomEngine()), realDistribution(getRandomEngine()));
         testInput.asinhVec = float32_t3(realDistribution(getRandomEngine()), realDistribution(getRandomEngine()), realDistribution(getRandomEngine()));
         testInput.acoshVec = float32_t3(realDistribution(getRandomEngine()), realDistribution(getRandomEngine()), realDistribution(getRandomEngine()));
-        testInput.atanhVec = float32_t3(realDistribution(getRandomEngine()), realDistribution(getRandomEngine()), realDistribution(getRandomEngine()));
+        testInput.atanhVec = float32_t3(realDistributionNegOneToOne(getRandomEngine()), realDistributionNegOneToOne(getRandomEngine()), realDistributionNegOneToOne(getRandomEngine()));
         testInput.atan2XVec = float32_t3(realDistribution(getRandomEngine()), realDistribution(getRandomEngine()), realDistribution(getRandomEngine()));
         testInput.atan2YVec = float32_t3(realDistribution(getRandomEngine()), realDistribution(getRandomEngine()), realDistribution(getRandomEngine()));
-        testInput.acosVec = float32_t3(realDistribution(getRandomEngine()), realDistribution(getRandomEngine()), realDistribution(getRandomEngine()));
+        testInput.acosVec = float32_t3(realDistributionNegOneToOne(getRandomEngine()), realDistributionNegOneToOne(getRandomEngine()), realDistributionNegOneToOne(getRandomEngine()));
         testInput.modfVec = float32_t3(realDistribution(getRandomEngine()), realDistribution(getRandomEngine()), realDistribution(getRandomEngine()));
+        testInput.roundVec = float32_t3(realDistribution(getRandomEngine()), realDistribution(getRandomEngine()), realDistribution(getRandomEngine()));
+        testInput.roundEvenVec = float32_t3(roundEvenInput(), roundEvenInput(), roundEvenInput());
+        testInput.truncVec = float32_t3(realDistribution(getRandomEngine()), realDistribution(getRandomEngine()), realDistribution(getRandomEngine()));
+        testInput.ceilVec = float32_t3(realDistribution(getRandomEngine()), realDistribution(getRandomEngine()), realDistribution(getRandomEngine()));
+        testInput.fmaXVec = float32_t3(realDistribution(getRandomEngine()), realDistribution(getRandomEngine()), realDistribution(getRandomEngine()));
+        testInput.fmaYVec = float32_t3(realDistribution(getRandomEngine()), realDistribution(getRandomEngine()), realDistribution(getRandomEngine()));
+        testInput.fmaZVec = float32_t3(realDistribution(getRandomEngine()), realDistribution(getRandomEngine()), realDistribution(getRandomEngine()));
         testInput.ldexpArgVec = float32_t3(realDistributionSmall(getRandomEngine()), realDistributionSmall(getRandomEngine()), realDistributionSmall(getRandomEngine()));
         testInput.ldexpExpVec = float32_t3(intDistribution(getRandomEngine()), intDistribution(getRandomEngine()), intDistribution(getRandomEngine()));
         testInput.erfVec = float32_t3(realDistribution(getRandomEngine()), realDistribution(getRandomEngine()), realDistribution(getRandomEngine()));
@@ -256,50 +271,59 @@ private:
         // TODO: figure out input for functions: sinh, cosh so output isn't a crazy low number
         // very low numbers generate comparison errors
 
+        // a value passes if either tolerance holds, see `approx::absRelEqual`
+        // Rel: scales with the larger magnitude, `|expected - tested| <= rel * max(|expected|, |tested|)`
+        // Abs: fixed bound for results near 0 where the relative one shrinks to nothing, `|expected - tested| <= abs`
+        // CPU and GPU implement these functions differently and disagree by a few ULPs, hence the multiples of epsilon
+        const float32_t E = std::numeric_limits<float32_t>::epsilon();
         // made them volatile so can change numbers in debugger without recompile
-        volatile float powTolerance = 1.00000012;
-        volatile float expTolerance = 2.38419e-07;
-        volatile float exp2Tolerance = 1.19209290e-07;
-        volatile float logTolerance = 5.96046e-06;
-        volatile float log2Tolerance = 6.19888e-06;
-        volatile float sqrtTolerance = 1.1921e-07;
-        volatile float sinCosTolerance = 0.0303608;
-        volatile float acosTolerance = 1.1921e-07;
-        volatile float tanTolerance = 0.195737;
-        volatile float asinTolerance = 1.1921e-07;
-        volatile float atanTolerance = 1.19209290e-07;
-        volatile float tanhTolerance = 1.1921e-07;
-        volatile float asinhTolerance = 1.1920929e-07;
-        volatile float acoshTolerance = 1.1920929e-07;
-        volatile float atanhTolerance = 2.38419e-07;
-        volatile float atan2Tolerance = 2.3842e-07;
-        volatile float erfTolerance = 0.000118017;
+        volatile float powRelTolerance = 4.0f * E;
+        volatile float expRelTolerance = 4.0f * E;
+        volatile float exp2RelTolerance = 4.0f * E;
+        volatile float logRelTolerance = 5.96046e-06;
+        volatile float log2RelTolerance = 6.19888e-06;
+        volatile float logAbsTolerance = 4.0f * E; // `log(x)` and `log2(x)` are near 0 for `x` near 1
+        volatile float sqrtRelTolerance = 4.0f * E;
+        volatile float sinCosRelTolerance = 4.0f * E;
+        volatile float sinCosAbsTolerance = 4.0f * E * 100.0f; // near 0 the error is a few ULPs of the input, inputs go up to 100
+        volatile float acosRelTolerance = 4.0f * E;
+        volatile float tanRelTolerance = 16.0f * E; // inputs stay in [-1.3, 1.3], the slope `1+tan^2` goes up to ~14 there
+        volatile float tanAbsTolerance = 4.0f * E;
+        volatile float asinRelTolerance = 4.0f * E;
+        volatile float atanRelTolerance = 4.0f * E;
+        volatile float tanhRelTolerance = 4.0f * E;
+        volatile float asinhRelTolerance = 4.0f * E;
+        volatile float acoshRelTolerance = 4.0f * E;
+        volatile float atanhRelTolerance = 4.0f * E;
+        volatile float inverseTrigAbsTolerance = 4.0f * E; // `asin`, `acos` and `atanh` are steep near +-1 and `acos` is near 0 there
+        volatile float atan2RelTolerance = 4.0f * E;
+        volatile float erfRelTolerance = 0.000118017;
 
         bool pass = true;
         pass &= verifyTestValue("floor", expectedTestValues.floor, testValues.floor, testIteration, seed, testType);
         pass &= verifyTestValue("isnan", expectedTestValues.isnan, testValues.isnan, testIteration, seed, testType);
         pass &= verifyTestValue("isinf", expectedTestValues.isinf, testValues.isinf, testIteration, seed, testType);
-        pass &= verifyTestValue("pow", expectedTestValues.pow, testValues.pow, testIteration, seed, testType, powTolerance);
-        pass &= verifyTestValue("exp", expectedTestValues.exp, testValues.exp, testIteration, seed, testType, expTolerance);
-        pass &= verifyTestValue("exp2", expectedTestValues.exp2, testValues.exp2, testIteration, seed, testType, exp2Tolerance);
-        pass &= verifyTestValue("log", expectedTestValues.log, testValues.log, testIteration, seed, testType, logTolerance);
-        pass &= verifyTestValue("log2", expectedTestValues.log2, testValues.log2, testIteration, seed, testType, log2Tolerance);
+        pass &= verifyTestValue("pow", expectedTestValues.pow, testValues.pow, testIteration, seed, testType, powRelTolerance);
+        pass &= verifyTestValue("exp", expectedTestValues.exp, testValues.exp, testIteration, seed, testType, expRelTolerance);
+        pass &= verifyTestValue("exp2", expectedTestValues.exp2, testValues.exp2, testIteration, seed, testType, exp2RelTolerance);
+        pass &= verifyTestValue("log", expectedTestValues.log, testValues.log, testIteration, seed, testType, logRelTolerance, logAbsTolerance);
+        pass &= verifyTestValue("log2", expectedTestValues.log2, testValues.log2, testIteration, seed, testType, log2RelTolerance, logAbsTolerance);
         pass &= verifyTestValue("absF", expectedTestValues.absF, testValues.absF, testIteration, seed, testType);
         pass &= verifyTestValue("absI", expectedTestValues.absI, testValues.absI, testIteration, seed, testType);
-        pass &= verifyTestValue("sqrt", expectedTestValues.sqrt, testValues.sqrt, testIteration, seed, testType, sqrtTolerance);
-        pass &= verifyTestValue("sin", expectedTestValues.sin, testValues.sin, testIteration, seed, testType, sinCosTolerance);
-        pass &= verifyTestValue("cos", expectedTestValues.cos, testValues.cos, testIteration, seed, testType, sinCosTolerance);
-        pass &= verifyTestValue("acos", expectedTestValues.acos, testValues.acos, testIteration, seed, testType, acosTolerance);
-        pass &= verifyTestValue("tan", expectedTestValues.tan, testValues.tan, testIteration, seed, testType, tanTolerance);
-        pass &= verifyTestValue("asin", expectedTestValues.asin, testValues.asin, testIteration, seed, testType, asinTolerance);
-        pass &= verifyTestValue("atan", expectedTestValues.atan, testValues.atan, testIteration, seed, testType, atanTolerance);
+        pass &= verifyTestValue("sqrt", expectedTestValues.sqrt, testValues.sqrt, testIteration, seed, testType, sqrtRelTolerance);
+        pass &= verifyTestValue("sin", expectedTestValues.sin, testValues.sin, testIteration, seed, testType, sinCosRelTolerance, sinCosAbsTolerance);
+        pass &= verifyTestValue("cos", expectedTestValues.cos, testValues.cos, testIteration, seed, testType, sinCosRelTolerance, sinCosAbsTolerance);
+        pass &= verifyTestValue("acos", expectedTestValues.acos, testValues.acos, testIteration, seed, testType, acosRelTolerance, inverseTrigAbsTolerance);
+        pass &= verifyTestValue("tan", expectedTestValues.tan, testValues.tan, testIteration, seed, testType, tanRelTolerance, tanAbsTolerance);
+        pass &= verifyTestValue("asin", expectedTestValues.asin, testValues.asin, testIteration, seed, testType, asinRelTolerance, inverseTrigAbsTolerance);
+        pass &= verifyTestValue("atan", expectedTestValues.atan, testValues.atan, testIteration, seed, testType, atanRelTolerance);
         //pass &= verifyTestValue("sinh", expectedTestValues.sinh, testValues.sinh, testIteration, seed, testType);
         //pass &= verifyTestValue("cosh", expectedTestValues.cosh, testValues.cosh, testIteration, seed, testType);
-        pass &= verifyTestValue("tanh", expectedTestValues.tanh, testValues.tanh, testIteration, seed, testType, tanhTolerance);
-        pass &= verifyTestValue("asinh", expectedTestValues.asinh, testValues.asinh, testIteration, seed, testType, asinhTolerance);
-        pass &= verifyTestValue("acosh", expectedTestValues.acosh, testValues.acosh, testIteration, seed, testType, acoshTolerance);
-        pass &= verifyTestValue("atanh", expectedTestValues.atanh, testValues.atanh, testIteration, seed, testType, atanhTolerance);
-        pass &= verifyTestValue("atan2", expectedTestValues.atan2, testValues.atan2, testIteration, seed, testType, atan2Tolerance);
+        pass &= verifyTestValue("tanh", expectedTestValues.tanh, testValues.tanh, testIteration, seed, testType, tanhRelTolerance);
+        pass &= verifyTestValue("asinh", expectedTestValues.asinh, testValues.asinh, testIteration, seed, testType, asinhRelTolerance);
+        pass &= verifyTestValue("acosh", expectedTestValues.acosh, testValues.acosh, testIteration, seed, testType, acoshRelTolerance);
+        pass &= verifyTestValue("atanh", expectedTestValues.atanh, testValues.atanh, testIteration, seed, testType, atanhRelTolerance, inverseTrigAbsTolerance);
+        pass &= verifyTestValue("atan2", expectedTestValues.atan2, testValues.atan2, testIteration, seed, testType, atan2RelTolerance);
         pass &= verifyTestValue("modf", expectedTestValues.modf, testValues.modf, testIteration, seed, testType);
         pass &= verifyTestValue("round", expectedTestValues.round, testValues.round, testIteration, seed, testType);
         pass &= verifyTestValue("roundEven", expectedTestValues.roundEven, testValues.roundEven, testIteration, seed, testType);
@@ -307,41 +331,41 @@ private:
         pass &= verifyTestValue("ceil", expectedTestValues.ceil, testValues.ceil, testIteration, seed, testType);
         pass &= verifyTestValue("fma", expectedTestValues.fma, testValues.fma, testIteration, seed, testType);
         pass &= verifyTestValue("ldexp", expectedTestValues.ldexp, testValues.ldexp, testIteration, seed, testType);
-        pass &= verifyTestValue("erf", expectedTestValues.erf, testValues.erf, testIteration, seed, testType, erfTolerance);
+        pass &= verifyTestValue("erf", expectedTestValues.erf, testValues.erf, testIteration, seed, testType, erfRelTolerance);
         //pass &= verifyTestValue("erfInv", expectedTestValues.erfInv, testValues.erfInv, testIteration, seed, testType);
 
         pass &= verifyTestValue("floorVec", expectedTestValues.floorVec, testValues.floorVec, testIteration, seed, testType);
         pass &= verifyTestValue("isnanVec", expectedTestValues.isnanVec, testValues.isnanVec, testIteration, seed, testType);
         pass &= verifyTestValue("isinfVec", expectedTestValues.isinfVec, testValues.isinfVec, testIteration, seed, testType);
-        pass &= verifyTestValue("powVec", expectedTestValues.powVec, testValues.powVec, testIteration, seed, testType, powTolerance);
-        pass &= verifyTestValue("expVec", expectedTestValues.expVec, testValues.expVec, testIteration, seed, testType, expTolerance);
-        pass &= verifyTestValue("exp2Vec", expectedTestValues.exp2Vec, testValues.exp2Vec, testIteration, seed, testType, exp2Tolerance);
-        pass &= verifyTestValue("logVec", expectedTestValues.logVec, testValues.logVec, testIteration, seed, testType, logTolerance);
-        pass &= verifyTestValue("log2Vec", expectedTestValues.log2Vec, testValues.log2Vec, testIteration, seed, testType, log2Tolerance);
+        pass &= verifyTestValue("powVec", expectedTestValues.powVec, testValues.powVec, testIteration, seed, testType, powRelTolerance);
+        pass &= verifyTestValue("expVec", expectedTestValues.expVec, testValues.expVec, testIteration, seed, testType, expRelTolerance);
+        pass &= verifyTestValue("exp2Vec", expectedTestValues.exp2Vec, testValues.exp2Vec, testIteration, seed, testType, exp2RelTolerance);
+        pass &= verifyTestValue("logVec", expectedTestValues.logVec, testValues.logVec, testIteration, seed, testType, logRelTolerance, logAbsTolerance);
+        pass &= verifyTestValue("log2Vec", expectedTestValues.log2Vec, testValues.log2Vec, testIteration, seed, testType, log2RelTolerance, logAbsTolerance);
         pass &= verifyTestValue("absFVec", expectedTestValues.absFVec, testValues.absFVec, testIteration, seed, testType);
         pass &= verifyTestValue("absIVec", expectedTestValues.absIVec, testValues.absIVec, testIteration, seed, testType);
-        pass &= verifyTestValue("sqrtVec", expectedTestValues.sqrtVec, testValues.sqrtVec, testIteration, seed, testType, sqrtTolerance);
-        pass &= verifyTestValue("sinVec", expectedTestValues.sinVec, testValues.sinVec, testIteration, seed, testType, sinCosTolerance);
-        pass &= verifyTestValue("cosVec", expectedTestValues.cosVec, testValues.cosVec, testIteration, seed, testType, sinCosTolerance);
-        pass &= verifyTestValue("acosVec", expectedTestValues.acosVec, testValues.acosVec, testIteration, seed, testType);
+        pass &= verifyTestValue("sqrtVec", expectedTestValues.sqrtVec, testValues.sqrtVec, testIteration, seed, testType, sqrtRelTolerance);
+        pass &= verifyTestValue("sinVec", expectedTestValues.sinVec, testValues.sinVec, testIteration, seed, testType, sinCosRelTolerance, sinCosAbsTolerance);
+        pass &= verifyTestValue("cosVec", expectedTestValues.cosVec, testValues.cosVec, testIteration, seed, testType, sinCosRelTolerance, sinCosAbsTolerance);
+        pass &= verifyTestValue("acosVec", expectedTestValues.acosVec, testValues.acosVec, testIteration, seed, testType, acosRelTolerance, inverseTrigAbsTolerance);
         pass &= verifyTestValue("modfVec", expectedTestValues.modfVec, testValues.modfVec, testIteration, seed, testType);
         pass &= verifyTestValue("roundVec", expectedTestValues.roundVec, testValues.roundVec, testIteration, seed, testType);
         pass &= verifyTestValue("roundEvenVec", expectedTestValues.roundEvenVec, testValues.roundEvenVec, testIteration, seed, testType);
         pass &= verifyTestValue("truncVec", expectedTestValues.truncVec, testValues.truncVec, testIteration, seed, testType);
         pass &= verifyTestValue("ceilVec", expectedTestValues.ceilVec, testValues.ceilVec, testIteration, seed, testType);
         pass &= verifyTestValue("fmaVec", expectedTestValues.fmaVec, testValues.fmaVec, testIteration, seed, testType);
-        pass &= verifyTestValue("ldexp", expectedTestValues.ldexpVec, testValues.ldexpVec, testIteration, seed, testType);
-        pass &= verifyTestValue("tanVec", expectedTestValues.tanVec, testValues.tanVec, testIteration, seed, testType, tanTolerance);
-        pass &= verifyTestValue("asinVec", expectedTestValues.asinVec, testValues.asinVec, testIteration, seed, testType);
-        pass &= verifyTestValue("atanVec", expectedTestValues.atanVec, testValues.atanVec, testIteration, seed, testType, atanTolerance);
+        pass &= verifyTestValue("ldexpVec", expectedTestValues.ldexpVec, testValues.ldexpVec, testIteration, seed, testType);
+        pass &= verifyTestValue("tanVec", expectedTestValues.tanVec, testValues.tanVec, testIteration, seed, testType, tanRelTolerance, tanAbsTolerance);
+        pass &= verifyTestValue("asinVec", expectedTestValues.asinVec, testValues.asinVec, testIteration, seed, testType, asinRelTolerance, inverseTrigAbsTolerance);
+        pass &= verifyTestValue("atanVec", expectedTestValues.atanVec, testValues.atanVec, testIteration, seed, testType, atanRelTolerance);
         //pass &= verifyTestValue("sinhVec", expectedTestValues.sinhVec, testValues.sinhVec, testIteration, seed, testType);
         //pass &= verifyTestValue("coshVec", expectedTestValues.coshVec, testValues.coshVec, testIteration, seed, testType);
-        pass &= verifyTestValue("tanhVec", expectedTestValues.tanhVec, testValues.tanhVec, testIteration, seed, testType, tanhTolerance);
-        pass &= verifyTestValue("asinhVec", expectedTestValues.asinhVec, testValues.asinhVec, testIteration, seed, testType, asinhTolerance);
-        pass &= verifyTestValue("acoshVec", expectedTestValues.acoshVec, testValues.acoshVec, testIteration, seed, testType);
-        pass &= verifyTestValue("atanhVec", expectedTestValues.atanhVec, testValues.atanhVec, testIteration, seed, testType, atanhTolerance);
-        pass &= verifyTestValue("atan2Vec", expectedTestValues.atan2Vec, testValues.atan2Vec, testIteration, seed, testType);
-        pass &= verifyTestValue("erfVec", expectedTestValues.erfVec, testValues.erfVec, testIteration, seed, testType, erfTolerance);
+        pass &= verifyTestValue("tanhVec", expectedTestValues.tanhVec, testValues.tanhVec, testIteration, seed, testType, tanhRelTolerance);
+        pass &= verifyTestValue("asinhVec", expectedTestValues.asinhVec, testValues.asinhVec, testIteration, seed, testType, asinhRelTolerance);
+        pass &= verifyTestValue("acoshVec", expectedTestValues.acoshVec, testValues.acoshVec, testIteration, seed, testType, acoshRelTolerance);
+        pass &= verifyTestValue("atanhVec", expectedTestValues.atanhVec, testValues.atanhVec, testIteration, seed, testType, atanhRelTolerance, inverseTrigAbsTolerance);
+        pass &= verifyTestValue("atan2Vec", expectedTestValues.atan2Vec, testValues.atan2Vec, testIteration, seed, testType, atan2RelTolerance);
+        pass &= verifyTestValue("erfVec", expectedTestValues.erfVec, testValues.erfVec, testIteration, seed, testType, erfRelTolerance);
         //pass &= verifyTestValue("erfInvVec", expectedTestValues.erfInvVec, testValues.erfInvVec, testIteration, seed, testType);
 
         // verify output of struct producing functions

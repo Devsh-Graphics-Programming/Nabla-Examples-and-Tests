@@ -1,0 +1,586 @@
+{
+  "enabled": true,
+  "log": false,
+  "exclusive": true,
+  "hard_fail": true,
+  "enableActiveCameraMovement": true,
+  "visual_debug": true,
+  "visual_debug_target_fps": 60,
+  "visual_debug_hold_seconds": 4,
+  "capture_prefix": "camera_continuity",
+  "fps": 60,
+  "defaults": {
+    "duration_seconds": 4.0,
+    "reset_camera": true,
+    "presentations": [
+      {
+        "projection": "perspective",
+        "left_handed": true
+      },
+      {
+        "projection": "orthographic",
+        "left_handed": true
+      }
+    ],
+    "continuity": {
+      "baseline": true,
+      "step": true,
+      "min_pos_delta": 0.00025,
+      "max_pos_delta": 2.0,
+      "min_euler_delta_deg": 0.00025,
+      "max_euler_delta_deg": 4.0
+    },
+    "captures": [
+      "end"
+    ]
+  },
+  "segments": [
+    {
+      "name": "fps_sway",
+      "camera_kind": "FPS",
+      "keyframes": [
+        {
+          "time": 0.0
+        },
+        {
+          "time": 4.0,
+          "delta": {
+            "position_offset": [
+              0.9,
+              0.35,
+              1.6
+            ],
+            "rotation_euler_deg_offset": [
+              7.5,
+              -22.0,
+              3.5
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "orbit_swing",
+      "camera_kind": "Orbit",
+      "keyframes": [
+        {
+          "time": 0.0
+        },
+        {
+          "time": 4.0,
+          "delta": {
+            "target_offset": [
+              1.6,
+              -1.1,
+              0.4
+            ],
+            "orbit_u_delta_deg": -32.0,
+            "orbit_v_delta_deg": 10.0,
+            "orbit_distance_delta": -1.35
+          }
+        }
+      ],
+      "target_keyframes": [
+        {
+          "time": 0.0
+        },
+        {
+          "time": 1.5,
+          "delta": {
+            "position_offset": [
+              1.2,
+              -0.8,
+              0.4
+            ],
+            "rotation_euler_deg_offset": [
+              16.0,
+              32.0,
+              -18.0
+            ]
+          }
+        },
+        {
+          "time": 4.0,
+          "delta": {
+            "position_offset": [
+              3.2,
+              -1.8,
+              1.0
+            ],
+            "rotation_euler_deg_offset": [
+              34.0,
+              78.0,
+              -42.0
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "free_roll",
+      "camera_kind": "Free",
+      "keyframes": [
+        {
+          "time": 0.0
+        },
+        {
+          "time": 4.0,
+          "delta": {
+            "position_offset": [
+              0.7,
+              0.8,
+              1.8
+            ],
+            "rotation_euler_deg_offset": [
+              5.0,
+              -16.0,
+              12.0
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "arcball_orbit",
+      "camera_kind": "Arcball",
+      "keyframes": [
+        {
+          "time": 0.0
+        },
+        {
+          "time": 4.0,
+          "delta": {
+            "target_offset": [
+              1.1,
+              -1.4,
+              0.5
+            ],
+            "orbit_u_delta_deg": 72.0,
+            "orbit_v_delta_deg": -12.0,
+            "orbit_distance_delta": -0.7
+          }
+        }
+      ],
+      "target_keyframes": [
+        {
+          "time": 0.0
+        },
+        {
+          "time": 1.5,
+          "delta": {
+            "position_offset": [
+              -1.0,
+              1.1,
+              0.6
+            ],
+            "rotation_euler_deg_offset": [
+              20.0,
+              28.0,
+              18.0
+            ]
+          }
+        },
+        {
+          "time": 4.0,
+          "delta": {
+            "position_offset": [
+              -2.5,
+              2.7,
+              1.4
+            ],
+            "rotation_euler_deg_offset": [
+              42.0,
+              68.0,
+              44.0
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "turntable_push",
+      "camera_kind": "Turntable",
+      "keyframes": [
+        {
+          "time": 0.0
+        },
+        {
+          "time": 4.0,
+          "delta": {
+            "target_offset": [
+              1.8,
+              0.9,
+              0.3
+            ],
+            "orbit_u_delta_deg": 92.0,
+            "orbit_distance_delta": -1.75
+          }
+        }
+      ],
+      "target_keyframes": [
+        {
+          "time": 0.0
+        },
+        {
+          "time": 1.5,
+          "delta": {
+            "position_offset": [
+              0.9,
+              1.5,
+              0.3
+            ],
+            "rotation_euler_deg_offset": [
+              10.0,
+              34.0,
+              -20.0
+            ]
+          }
+        },
+        {
+          "time": 4.0,
+          "delta": {
+            "position_offset": [
+              2.6,
+              3.7,
+              0.8
+            ],
+            "rotation_euler_deg_offset": [
+              24.0,
+              84.0,
+              -46.0
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "topdown_pan",
+      "camera_kind": "TopDown",
+      "keyframes": [
+        {
+          "time": 0.0
+        },
+        {
+          "time": 1.5,
+          "delta": {
+            "target_offset": [
+              2.0,
+              -1.5,
+              0.0
+            ],
+            "orbit_u_delta_deg": 18.0,
+            "orbit_distance_delta": -1.0
+          }
+        },
+        {
+          "time": 4.0,
+          "delta": {
+            "target_offset": [
+              6.0,
+              -4.5,
+              0.0
+            ],
+            "orbit_u_delta_deg": 42.0,
+            "orbit_distance_delta": -3.0
+          }
+        }
+      ],
+      "target_keyframes": [
+        {
+          "time": 0.0
+        },
+        {
+          "time": 1.5,
+          "delta": {
+            "position_offset": [
+              1.8,
+              -1.2,
+              1.0
+            ],
+            "rotation_euler_deg_offset": [
+              30.0,
+              22.0,
+              18.0
+            ]
+          }
+        },
+        {
+          "time": 4.0,
+          "delta": {
+            "position_offset": [
+              4.8,
+              -3.4,
+              2.1
+            ],
+            "rotation_euler_deg_offset": [
+              68.0,
+              58.0,
+              38.0
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "isometric_pan",
+      "camera_kind": "Isometric",
+      "keyframes": [
+        {
+          "time": 0.0
+        },
+        {
+          "time": 4.0,
+          "delta": {
+            "target_offset": [
+              6.0,
+              4.5,
+              0.0
+            ],
+            "orbit_distance_delta": -2.25
+          }
+        }
+      ],
+      "target_keyframes": [
+        {
+          "time": 0.0
+        },
+        {
+          "time": 1.5,
+          "delta": {
+            "position_offset": [
+              1.6,
+              1.2,
+              0.9
+            ],
+            "rotation_euler_deg_offset": [
+              24.0,
+              -26.0,
+              20.0
+            ]
+          }
+        },
+        {
+          "time": 4.0,
+          "delta": {
+            "position_offset": [
+              4.0,
+              3.0,
+              1.8
+            ],
+            "rotation_euler_deg_offset": [
+              52.0,
+              -64.0,
+              46.0
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "chase_arc",
+      "camera_kind": "Chase",
+      "keyframes": [
+        {
+          "time": 0.0
+        }
+      ],
+      "target_keyframes": [
+        {
+          "time": 0.0
+        },
+        {
+          "time": 1.5,
+          "delta": {
+            "position_offset": [
+              1.5,
+              -1.2,
+              0.6
+            ],
+            "rotation_euler_deg_offset": [
+              0.0,
+              10.0,
+              0.0
+            ]
+          }
+        },
+        {
+          "time": 4.0,
+          "delta": {
+            "position_offset": [
+              4.5,
+              -3.4,
+              1.4
+            ],
+            "rotation_euler_deg_offset": [
+              0.0,
+              30.0,
+              0.0
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "dolly_slide",
+      "camera_kind": "Dolly",
+      "keyframes": [
+        {
+          "time": 0.0
+        }
+      ],
+      "target_keyframes": [
+        {
+          "time": 0.0
+        },
+        {
+          "time": 1.5,
+          "delta": {
+            "position_offset": [
+              1.8,
+              1.0,
+              0.2
+            ],
+            "rotation_euler_deg_offset": [
+              0.0,
+              -10.0,
+              0.0
+            ]
+          }
+        },
+        {
+          "time": 4.0,
+          "delta": {
+            "position_offset": [
+              5.3,
+              3.1,
+              -0.1
+            ],
+            "rotation_euler_deg_offset": [
+              0.0,
+              -28.0,
+              0.0
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "dollyzoom_breath",
+      "camera_kind": "DollyZoom",
+      "captures": [
+        0.25,
+        0.5,
+        0.75,
+        1.0
+      ],
+      "keyframes": [
+        {
+          "time": 0.0
+        },
+        {
+          "time": 4.0,
+          "delta": {
+            "orbit_distance_delta": -5.5,
+            "dynamic_base_fov_delta": 10.0,
+            "dynamic_reference_distance_delta": 2.5
+          }
+        }
+      ],
+      "target_keyframes": [
+        {
+          "time": 0.0
+        },
+        {
+          "time": 1.5,
+          "delta": {
+            "position_offset": [
+              0.8,
+              -0.5,
+              0.4
+            ],
+            "rotation_euler_deg_offset": [
+              12.0,
+              30.0,
+              16.0
+            ]
+          }
+        },
+        {
+          "time": 4.0,
+          "delta": {
+            "position_offset": [
+              2.4,
+              -1.4,
+              1.0
+            ],
+            "rotation_euler_deg_offset": [
+              26.0,
+              74.0,
+              38.0
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "path_arc",
+      "camera_kind": "PathRig",
+      "keyframes": [
+        {
+          "time": 0.0
+        },
+        {
+          "time": 1.5,
+          "delta": {
+            "path_s_delta_deg": 42.0,
+            "path_u_delta": -3.5,
+            "path_v_delta": 1.0
+          }
+        },
+        {
+          "time": 4.0,
+          "delta": {
+            "path_s_delta_deg": 115.0,
+            "path_u_delta": -8.0,
+            "path_v_delta": 2.2
+          }
+        }
+      ],
+      "target_keyframes": [
+        {
+          "time": 0.0
+        },
+        {
+          "time": 1.5,
+          "delta": {
+            "position_offset": [
+              1.4,
+              0.8,
+              0.8
+            ],
+            "rotation_euler_deg_offset": [
+              18.0,
+              38.0,
+              22.0
+            ]
+          }
+        },
+        {
+          "time": 4.0,
+          "delta": {
+            "position_offset": [
+              4.0,
+              2.5,
+              1.9
+            ],
+            "rotation_euler_deg_offset": [
+              42.0,
+              102.0,
+              48.0
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}
