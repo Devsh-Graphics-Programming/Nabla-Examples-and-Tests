@@ -23,5 +23,4 @@ endif()
 
 
 find_package(argparse CONFIG REQUIRED)
-set_target_properties(argparse::argparse PROPERTIES MAP_IMPORTED_CONFIG_RELWITHDEBINFO Release)
 target_link_libraries(${EXECUTABLE_NAME} PRIVATE argparse::argparse)
