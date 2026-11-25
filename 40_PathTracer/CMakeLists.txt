@@ -9,8 +9,7 @@ set(NBL_INCLUDE_SERACH_DIRECTORIES
 set(NBL_LIBRARIES
 	"${NBL_EXT_MITSUBA_LOADER_LIB}"
 	Nabla::ext::FullScreenTriangle
-    imguizmo
-	"${NBL_EXT_IMGUI_UI_LIB}"
+    Nabla::ext::ImGUI
 )
 set(NBL_EXAMPLE_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/src/io/CSceneLoader.cpp"

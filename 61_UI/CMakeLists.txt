@@ -19,13 +19,18 @@ if(TARGET Nabla::ext::FullScreenTriangle AND TARGET Nabla::ext::Cameras AND TARG
 	)
 
 	list(APPEND NBL_LIBRARIES
-		argparse
 		Nabla::ext::ImGUI
 		Nabla::ext::FullScreenTriangle
 		Nabla::ext::Cameras
 	)
 
 	nbl_create_executable_project("${NBL_EXTRA_SOURCES}" "" "${NBL_INCLUDE_SERACH_DIRECTORIES}" "${NBL_LIBRARIES}")
+
+	find_package(argparse CONFIG REQUIRED)
+	find_package(blake3 CONFIG REQUIRED)
+	find_package(nlohmann_json CONFIG REQUIRED)
+	find_package(gtl CONFIG REQUIRED)
+	target_link_libraries(${EXECUTABLE_NAME} PRIVATE argparse::argparse BLAKE3::blake3 nlohmann_json::nlohmann_json gtl::gtl)
 
 	# camera configs are read through the "app_resources" mount alias, so they must be embedded as builtins
 	file(GLOB_RECURSE APP_RESOURCE_KEYS
