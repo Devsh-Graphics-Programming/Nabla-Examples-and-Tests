@@ -26,6 +26,8 @@ endif()
 
 find_package(argparse CONFIG REQUIRED)
 target_link_libraries(${EXECUTABLE_NAME} PRIVATE argparse::argparse)
+find_package(nlohmann_json CONFIG REQUIRED)
+target_link_libraries(${EXECUTABLE_NAME} PRIVATE nlohmann_json::nlohmann_json)
 
 enable_testing()
 

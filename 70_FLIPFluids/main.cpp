@@ -197,7 +197,7 @@ public:
         if (!m_surface)
         {
             {
-                auto windowCallback = core::make_smart_refctd_ptr<CEventCallback>(smart_refctd_ptr(m_inputSystem), smart_refctd_ptr(m_logger));
+                auto windowCallback = core::make_smart_refctd_ptr<nbl::examples::CEventCallback>(smart_refctd_ptr(m_inputSystem), smart_refctd_ptr(m_logger));
                 IWindow::SCreationParams params{
                     .callback = core::make_smart_refctd_ptr<ISimpleManagedSurface::ICallback>(),
                     .x = 32,
@@ -212,7 +212,7 @@ public:
             }
 
             auto surface = CSurfaceVulkanWin32::create(smart_refctd_ptr(m_api), smart_refctd_ptr_static_cast<IWindowWin32>(m_window));
-            const_cast<std::remove_const_t<decltype(m_surface)>&>(m_surface) = nbl::video::CSimpleResizeSurface<CSwapchainFramebuffersAndDepth>::create(std::move(surface));
+            const_cast<std::remove_const_t<decltype(m_surface)>&>(m_surface) = nbl::video::CSimpleResizeSurface<nbl::examples::CSwapchainFramebuffersAndDepth>::create(std::move(surface));
         }
 
         if (m_surface)
@@ -1575,7 +1575,7 @@ private:
             IGPURenderpass::SCreationParams::DependenciesEnd
         };
 
-        auto scResources = std::make_unique<CSwapchainFramebuffersAndDepth>(m_device.get(), EF_D16_UNORM, swapchainParams.surfaceFormat.format, dependencies);
+        auto scResources = std::make_unique<nbl::examples::CSwapchainFramebuffersAndDepth>(m_device.get(), EF_D16_UNORM, swapchainParams.surfaceFormat.format, dependencies);
         auto* renderpass = scResources->getRenderpass();
         if (!renderpass)
             return logFail("Failed to create renderpass!\n");
@@ -1781,7 +1781,7 @@ private:
 
 
     smart_refctd_ptr<IWindow> m_window;
-    smart_refctd_ptr<CSimpleResizeSurface<CSwapchainFramebuffersAndDepth>> m_surface;
+    smart_refctd_ptr<CSimpleResizeSurface<nbl::examples::CSwapchainFramebuffersAndDepth>> m_surface;
     smart_refctd_ptr<IGPUGraphicsPipeline> m_graphicsPipeline;
     smart_refctd_ptr<ISemaphore> m_renderSemaphore;
     smart_refctd_ptr<IGPUCommandPool> m_cmdPool;

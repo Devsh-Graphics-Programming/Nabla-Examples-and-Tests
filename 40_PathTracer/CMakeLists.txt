@@ -21,6 +21,9 @@ set(NBL_EXAMPLE_SOURCES
 )
 nbl_create_executable_project("${NBL_EXAMPLE_SOURCES}" "" "${NBL_INCLUDE_SERACH_DIRECTORIES}" "${NBL_LIBRARIES}")
 
+find_package(nlohmann_json CONFIG REQUIRED)
+target_link_libraries(${EXECUTABLE_NAME} PRIVATE nlohmann_json::nlohmann_json)
+
 set(OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/auto-gen")
 
 set(SM 6_9)
