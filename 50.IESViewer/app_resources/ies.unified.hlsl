@@ -21,13 +21,13 @@ struct Accessor
     using angle_t = float32_t;
     using candela_t = float32_t;
 
-    candela_t value(const uint32_t2 ij) { return (nbl::hlsl::bda::__ptr<candela_t>::create(pc.cdc.dataBDA) + pc.cdc.vAnglesCount * ij.x + ij.y).deref().load(); }
-    angle_t vAngle(const uint32_t idx) { return (nbl::hlsl::bda::__ptr<angle_t>::create(pc.cdc.vAnglesBDA) + idx).deref().load(); }
-    angle_t hAngle(const uint32_t idx) { return (nbl::hlsl::bda::__ptr<angle_t>::create(pc.cdc.hAnglesBDA) + idx).deref().load(); }
-    uint32_t vAnglesCount() { return pc.cdc.vAnglesCount; }
-    uint32_t hAnglesCount() { return pc.cdc.hAnglesCount; }
+    candela_t value(const uint32_t2 ij) NBL_CONST_MEMBER_FUNC { return (nbl::hlsl::bda::__ptr<candela_t>::create(pc.cdc.dataBDA) + pc.cdc.vAnglesCount * ij.x + ij.y).deref().load(); }
+    angle_t vAngle(const uint32_t idx) NBL_CONST_MEMBER_FUNC { return (nbl::hlsl::bda::__ptr<angle_t>::create(pc.cdc.vAnglesBDA) + idx).deref().load(); }
+    angle_t hAngle(const uint32_t idx) NBL_CONST_MEMBER_FUNC { return (nbl::hlsl::bda::__ptr<angle_t>::create(pc.cdc.hAnglesBDA) + idx).deref().load(); }
+    uint32_t vAnglesCount() NBL_CONST_MEMBER_FUNC { return pc.cdc.vAnglesCount; }
+    uint32_t hAnglesCount() NBL_CONST_MEMBER_FUNC { return pc.cdc.hAnglesCount; }
 
-    nbl::hlsl::ies::ProfileProperties getProperties() { return pc.cdc.properties; }
+    nbl::hlsl::ies::ProfileProperties getProperties() NBL_CONST_MEMBER_FUNC { return pc.cdc.properties; }
 };
 
 #include "nbl/builtin/hlsl/ies/texture.hlsl"

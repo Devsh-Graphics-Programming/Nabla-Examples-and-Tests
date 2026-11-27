@@ -385,7 +385,7 @@ struct Shape<T, PST_SPHERE>
     }
 
     // return intersection distance if found, nan otherwise
-    scalar_type intersect(NBL_CONST_REF_ARG(vector3_type) origin, NBL_CONST_REF_ARG(vector3_type) direction)
+    scalar_type intersect(NBL_CONST_REF_ARG(vector3_type) origin, NBL_CONST_REF_ARG(vector3_type) direction) NBL_CONST_MEMBER_FUNC
     {
         vector3_type relOrigin = origin - position;
         scalar_type relOriginLen2 = hlsl::dot(relOrigin, relOrigin);
@@ -398,13 +398,13 @@ struct Shape<T, PST_SPHERE>
         return -dirDotRelOrigin + (relOriginLen2 > radius2 ? (-detsqrt) : detsqrt);
     }
 
-    vector3_type getNormal(NBL_CONST_REF_ARG(vector3_type) hitPosition)
+    vector3_type getNormal(NBL_CONST_REF_ARG(vector3_type) hitPosition) NBL_CONST_MEMBER_FUNC
     {
         const scalar_type radiusRcp = hlsl::rsqrt(radius2);
         return (hitPosition - position) * radiusRcp;
     }
 
-    scalar_type getSolidAngle(NBL_CONST_REF_ARG(vector3_type) origin)
+    scalar_type getSolidAngle(NBL_CONST_REF_ARG(vector3_type) origin) NBL_CONST_MEMBER_FUNC
     {
         vector3_type dist = position - origin;
         scalar_type cosThetaMax = hlsl::sqrt(1.0 - radius2 / hlsl::dot(dist, dist));
@@ -453,7 +453,7 @@ struct Shape<T, PST_TRIANGLE>
         vertex2 = mul(m, float4(localVertex2, 1.0)).xyz;
     }
 
-    scalar_type intersect(NBL_CONST_REF_ARG(vector3_type) origin, NBL_CONST_REF_ARG(vector3_type) direction)
+    scalar_type intersect(NBL_CONST_REF_ARG(vector3_type) origin, NBL_CONST_REF_ARG(vector3_type) direction) NBL_CONST_MEMBER_FUNC
     {
         const vector3_type edges[2] = { vertex1 - vertex0, vertex2 - vertex0 };
 
@@ -473,7 +473,7 @@ struct Shape<T, PST_TRIANGLE>
         return intersection ? t : bit_cast<scalar_type, uint32_t>(numeric_limits<scalar_type>::infinity);
     }
 
-    vector3_type getNormalTimesArea()
+    vector3_type getNormalTimesArea() NBL_CONST_MEMBER_FUNC
     {
         const vector3_type edges[2] = { vertex1 - vertex0, vertex2 - vertex0 };
         return hlsl::cross<vector3_type>(edges[0], edges[1]) * 0.5f;
@@ -527,7 +527,7 @@ struct Shape<T, PST_RECTANGLE>
         edge1 = vertex2 - vertex0;
     }
 
-    scalar_type intersect(NBL_CONST_REF_ARG(vector3_type) origin, NBL_CONST_REF_ARG(vector3_type) direction)
+    scalar_type intersect(NBL_CONST_REF_ARG(vector3_type) origin, NBL_CONST_REF_ARG(vector3_type) direction) NBL_CONST_MEMBER_FUNC
     {
         const vector3_type h = hlsl::cross<vector3_type>(direction, edge1);
         const scalar_type a = hlsl::dot<vector3_type>(edge0, h);
@@ -545,12 +545,12 @@ struct Shape<T, PST_RECTANGLE>
         return intersection ? t : bit_cast<scalar_type, uint32_t>(numeric_limits<scalar_type>::infinity);
     }
 
-    vector3_type getNormalTimesArea()
+    vector3_type getNormalTimesArea() NBL_CONST_MEMBER_FUNC
     {
         return hlsl::cross<vector3_type>(edge0, edge1);
     }
 
-    void getNormalBasis(NBL_REF_ARG(matrix<scalar_type, 3, 3>) basis, NBL_REF_ARG(vector<scalar_type, 2>) extents)
+    void getNormalBasis(NBL_REF_ARG(matrix<scalar_type, 3, 3>) basis, NBL_REF_ARG(vector<scalar_type, 2>) extents) NBL_CONST_MEMBER_FUNC
     {
         extents = vector<scalar_type, 2>(nbl::hlsl::length(edge0), nbl::hlsl::length(edge1));
         basis[0] = edge0 / extents[0];

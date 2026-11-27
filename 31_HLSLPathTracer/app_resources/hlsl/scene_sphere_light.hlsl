@@ -22,9 +22,9 @@ struct SceneSphereLight : SceneBase
     NBL_CONSTEXPR_STATIC_INLINE uint32_t TriangleCount = 0u;
     NBL_CONSTEXPR_STATIC_INLINE uint32_t RectangleCount = 0u;
 
-    static const Shape<scalar_type, PST_SPHERE> light_spheres[1];
+    static Shape<scalar_type, PST_SPHERE> light_spheres[1]; // not const because we can update its transform
 
-    Shape<scalar_type, PST_SPHERE> getSphere(uint32_t idx)
+    Shape<scalar_type, PST_SPHERE> getSphere(uint32_t idx) NBL_CONST_MEMBER_FUNC
     {
         assert(idx < SphereCount);
         if (idx < base_t::SCENE_SPHERE_COUNT)
@@ -33,33 +33,33 @@ struct SceneSphereLight : SceneBase
             return light_spheres[idx-base_t::SCENE_SPHERE_COUNT];
     }
 
-    Shape<scalar_type, PST_TRIANGLE> getTriangle(uint32_t idx)
+    Shape<scalar_type, PST_TRIANGLE> getTriangle(uint32_t idx) NBL_CONST_MEMBER_FUNC
     {
         assert(false);
         Shape<scalar_type, PST_TRIANGLE> dummy;
         return dummy;
     }
 
-    Shape<scalar_type, PST_RECTANGLE> getRectangle(uint32_t idx)
+    Shape<scalar_type, PST_RECTANGLE> getRectangle(uint32_t idx) NBL_CONST_MEMBER_FUNC
     {
         assert(false);
         Shape<scalar_type, PST_RECTANGLE> dummy;
         return dummy;
     }
 
-     void updateLight(NBL_CONST_REF_ARG(float32_t3x4) generalPurposeLightMatrix)
+    void updateLight(NBL_CONST_REF_ARG(float32_t3x4) generalPurposeLightMatrix)
     {
         light_spheres[0].updateTransform(generalPurposeLightMatrix);
     }
     
-    mat_light_id_type getMatLightIDs(NBL_CONST_REF_ARG(object_handle_type) objectID)
+    mat_light_id_type getMatLightIDs(NBL_CONST_REF_ARG(object_handle_type) objectID) NBL_CONST_MEMBER_FUNC
     {
         assert(objectID.shapeType == PST_SPHERE);
         return mat_light_id_type::createFromPacked(getSphere(objectID.id).bsdfLightIDs);
     }
 
     template<class Intersection, class Ray>
-    Intersection getIntersection(NBL_CONST_REF_ARG(object_handle_type) objectID, NBL_CONST_REF_ARG(Ray) rayIntersected)
+    Intersection getIntersection(NBL_CONST_REF_ARG(object_handle_type) objectID, NBL_CONST_REF_ARG(Ray) rayIntersected) NBL_CONST_MEMBER_FUNC
     {
         assert(objectID.shapeType == PST_SPHERE);
         Intersection intersection;
@@ -79,7 +79,7 @@ struct SceneSphereLight : SceneBase
     }
 };
 
-const Shape<float, PST_SPHERE> SceneSphereLight::light_spheres[1] = {
+Shape<float, PST_SPHERE> SceneSphereLight::light_spheres[1] = {
     Shape<float, PST_SPHERE>::create(float3(-1.5, 1.5, 0.0), 0.3, SceneBase::SCENE_BXDF_COUNT-1u/*last in mat arr*/, 1u)
 };
 

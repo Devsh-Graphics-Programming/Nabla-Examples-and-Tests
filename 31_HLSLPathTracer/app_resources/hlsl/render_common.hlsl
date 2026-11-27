@@ -25,7 +25,7 @@ struct RenderPushConstants
 		//assert(getLightMatrix()==hlsl::transpose(matT));
 	}
 
-    float32_t3x4 getLightMatrix()
+    float32_t3x4 getLightMatrix() NBL_CONST_MEMBER_FUNC
     {
         float32_t4x3 retval;
         retval[0] = lightX;

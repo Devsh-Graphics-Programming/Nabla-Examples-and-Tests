@@ -61,7 +61,7 @@ struct SBeautyPushConstants
 	uint32_t2 __16BitData;
 	static_assert(sizeof(uint32_t2)==sizeof(S16BitData));
 	// 
-	S16BitData get16BitData()
+	S16BitData get16BitData() NBL_CONST_MEMBER_FUNC
 	{
 		S16BitData retval;
 		retval.rrThroughputWeights = hlsl::bit_cast<float16_t4>(__16BitData).xyz;

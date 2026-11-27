@@ -33,7 +33,7 @@ struct Random16thPolynomial
 		}
 	}
 
-	F64 operator()(F64 x)
+	F64 operator()(F64 x) NBL_CONST_MEMBER_FUNC
 	{
 		F64 result = coefficients[CoefficientNumber - 1];
 

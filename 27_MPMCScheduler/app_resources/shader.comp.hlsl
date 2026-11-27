@@ -19,12 +19,12 @@ struct Sphere
 {
     static const uint32_t MaxColorValue = 1023;
 
-    float16_t3 getColor()
+    float16_t3 getColor() NBL_CONST_MEMBER_FUNC
     {
         return float16_t3(R,G,B)/float16_t3(MaxColorValue,MaxColorValue,MaxColorValue);
     }
 
-    float32_t intersect(const float32_t3 rayOrigin, const float32_t3 rayDir)
+    float32_t intersect(const float32_t3 rayOrigin, const float32_t3 rayDir) NBL_CONST_MEMBER_FUNC
     {
         float32_t3 relOrigin = rayOrigin - position;
         float32_t relOriginLen2 = dot(relOrigin,relOrigin);
@@ -112,7 +112,7 @@ struct WhittedTask
     {
         dir = _static_cast<dir_t>(_dir);
     }
-    float32_t3 getRayDir() 
+    float32_t3 getRayDir() NBL_CONST_MEMBER_FUNC
     {
         return _static_cast<float32_t3>(dir);
     }

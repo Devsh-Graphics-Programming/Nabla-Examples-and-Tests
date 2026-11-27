@@ -37,7 +37,7 @@ struct SDefaultResolvePushConstants
 #else
     // note how this is a conversion to a copy, and not handing out of a reference
     // Ergo, its not a true "union"
-    inline Regular regular()
+    inline Regular regular() NBL_CONST_MEMBER_FUNC
     {
         Regular retval;
         retval.scale = __union.invProjView[0].xy;
@@ -45,7 +45,7 @@ struct SDefaultResolvePushConstants
         retval._max = __union.invProjView[1].xy;
         return retval;
     }
-    inline Cubemap cubemap() {return __union;}
+    inline Cubemap cubemap() NBL_CONST_MEMBER_FUNC {return __union;}
 
     Cubemap __union;
 #endif

@@ -43,7 +43,7 @@ struct MaterialSystem
                                                         uint32_t(bxdf::traits<iri_conductor_op_type>::type == bxdf::BT_BSDF) << uint32_t(MaterialType::IRIDESCENT_CONDUCTOR) |
                                                         uint32_t(bxdf::traits<iri_dielectric_op_type>::type == bxdf::BT_BSDF) << uint32_t(MaterialType::IRIDESCENT_DIELECTRIC);
 
-    bool isBSDF(material_id_type matID)
+    bool isBSDF(material_id_type matID) NBL_CONST_MEMBER_FUNC
     {
         MaterialType matType = (MaterialType)bxdfs[matID.id].materialType;
         return bool(IsBSDFPacked & (1u << matID.id));
@@ -76,7 +76,7 @@ struct MaterialSystem
     }
 
     // these are specific for the bxdfs used for this example
-    void fillBxdfParams(material_id_type matID, NBL_REF_ARG(cache_type) _cache)
+    void fillBxdfParams(material_id_type matID, NBL_REF_ARG(cache_type) _cache) NBL_CONST_MEMBER_FUNC
     {
         create_params_t cparams = bxdfs[matID.id].params;
         MaterialType matType = (MaterialType)bxdfs[matID.id].materialType;
@@ -168,7 +168,7 @@ struct MaterialSystem
         }
     }
 
-    sample_type generate(material_id_type matID, NBL_CONST_REF_ARG(anisotropic_interaction_type) interaction, NBL_CONST_REF_ARG(vector3_type) u, NBL_REF_ARG(cache_type) _cache)
+    sample_type generate(material_id_type matID, NBL_CONST_REF_ARG(anisotropic_interaction_type) interaction, NBL_CONST_REF_ARG(vector3_type) u, NBL_REF_ARG(cache_type) _cache) NBL_CONST_MEMBER_FUNC
     {
         // TODO: should probably split the caches, no aniso cache needed (generate should overwrite it
         fillBxdfParams(matID, _cache);
@@ -205,7 +205,7 @@ struct MaterialSystem
         }
     }
 
-    quotient_weight_type quotientAndWeight(material_id_type matID, NBL_CONST_REF_ARG(sample_type) _sample, NBL_CONST_REF_ARG(anisotropic_interaction_type) interaction, NBL_REF_ARG(cache_type) _cache)
+    quotient_weight_type quotientAndWeight(material_id_type matID, NBL_CONST_REF_ARG(sample_type) _sample, NBL_CONST_REF_ARG(anisotropic_interaction_type) interaction, NBL_REF_ARG(cache_type) _cache) NBL_CONST_MEMBER_FUNC
     {
         const float minimumProjVectorLen = 0.00000001;  // TODO: still need this check?
         if (interaction.getNdotV(bxdf::BxDFClampMode::BCM_ABS) > minimumProjVectorLen && _sample.getNdotL(bxdf::BxDFClampMode::BCM_ABS) > minimumProjVectorLen)
@@ -243,13 +243,13 @@ struct MaterialSystem
         return quotient_weight_type::create(0.0, 0.0);
     }
 
-    bool hasEmission(material_id_type matID)
+    bool hasEmission(material_id_type matID) NBL_CONST_MEMBER_FUNC
     {
         MaterialType matType = (MaterialType)bxdfs[matID.id].materialType;
         return matType == MaterialType::EMISSIVE;
     }
 
-    measure_type getEmission(material_id_type matID, NBL_CONST_REF_ARG(anisotropic_interaction_type) interaction)
+    measure_type getEmission(material_id_type matID, NBL_CONST_REF_ARG(anisotropic_interaction_type) interaction) NBL_CONST_MEMBER_FUNC
     {
         if (hasEmission(matID))
             return bxdfs[matID.id].albedo;
